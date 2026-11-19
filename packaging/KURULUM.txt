@@ -1,0 +1,38 @@
+AI Usage Widget — Kurulum
+=========================
+
+Kurulum gerekmez: AIUsageWidget.exe'yi istediğin bir klasöre koy ve çift tıkla.
+
+Ne gerekir
+----------
+- Windows 11 (WebView2 zaten yüklü gelir).
+- Hangi araçları kullanıyorsan onlarda oturum açık olsun:
+  * Claude   : terminalde `claude` çalıştır, /login yap (Claude Code CLI).
+  * Codex    : Codex uygulamasında ChatGPT hesabınla giriş yap.
+  * Antigravity: Antigravity uygulaması veya `agy` CLI ile giriş yapılmış olsun.
+  Kurulu olmayan araçlar widget'ta görünmez.
+
+Kullanım
+--------
+- Widget, görev çubuğunda Başlat (Windows) düğmesinin hemen soluna yerleşir.
+- Tıkla: panel açılır (görev çubuğundaki kısım yerinde kalır). Tekrar tıkla,
+  Esc'e bas ya da başka yere tıkla: kapanır.
+- Panelde ⚙ Ayarlar:
+  * Görev çubuğunda gösterilecek sağlayıcılar (en fazla 2)
+  * Görev çubuğu genişliği (slider)
+  * Limitleri "Used" (kullanılan) ya da "Remaining" (kalan) göster
+- Kapatmak için paneldeki ✕.
+
+Windows açılışında otomatik başlatmak için
+------------------------------------------
+Win+R → shell:startup → AIUsageWidget.exe için bir kısayol oluşturup o klasöre koy.
+
+Notlar
+------
+- Windows SmartScreen "tanınmayan uygulama" uyarısı verebilir (exe imzalı değil):
+  "Ek bilgi" → "Yine de çalıştır".
+- Ayarlar ve önbellek: %APPDATA%\AIUsageWidget\
+- Widget giriş bilgilerini sadece okur; hiçbir veriyi kendi sunucularına
+  (Anthropic, OpenAI, Google) dışında bir yere göndermez.
+- Kullanılan endpoint'ler resmi olarak belgelenmemiştir; araç güncellemeleri
+  sonrası bir sağlayıcı geçici olarak veri göstermeyebilir.

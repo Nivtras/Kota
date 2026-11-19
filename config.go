@@ -1,0 +1,37 @@
+package main
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+)
+
+type config struct {
+	CompactWidth int      `json:"compactWidth,omitempty"` // taskbar pill width, logical px (0 = default)
+	Taskbar      []string `json:"taskbar,omitempty"`      // provider IDs on the taskbar pill
+	Display      string   `json:"display,omitempty"`      // "used" (default) | "remaining"
+}
+
+func configPath() string {
+	d, err := os.UserConfigDir()
+	if err != nil {
+		d = "."
+	}
+	return filepath.Join(d, "AIUsageWidget", "config.json")
+}
+
+func loadConfig() config {
+	var c config
+	if b, err := os.ReadFile(configPath()); err == nil {
+		_ = json.Unmarshal(b, &c)
+	}
+	return c
+}
+
+func saveConfig(c config) {
+	p := configPath()
+	_ = os.MkdirAll(filepath.Dir(p), 0o755)
+	if b, err := json.MarshalIndent(c, "", "  "); err == nil {
+		_ = os.WriteFile(p, b, 0o644)
+	}
+}
