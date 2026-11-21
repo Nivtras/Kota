@@ -26,36 +26,8 @@
     user-select: none;
     overflow: hidden;
   }
-  /* Go reports where the pill and panel sit in the window (setLayout);
-     in compact mode the pill fills the whole window. */
-  .view { display: none; position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
-  body.compact #compact, body.expanded #compact { display: flex; }
-  body.expanded #expanded { display: flex; }
-
-  /* ---------- compact (taskbar) ---------- */
-  #compact {
-    flex-direction: column; justify-content: center; gap: 3px;
-    padding: 0 10px;
-    background: var(--pill-bg);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    cursor: pointer;
-  }
-  #compact:hover { border-color: rgba(255,255,255,.16); }
-  .c-row {
-    display: grid;
-    grid-template-columns: 14px 1fr 44px 52px;
-    align-items: center; gap: 6px;
-    font-size: 11px; line-height: 14px;
-  }
-  .c-row .logo { width: 14px; height: 14px; border-radius: 3px; font-size: 9px; }
+  /* This page is the panel only; the taskbar pill is a native window. */
   img.logo { object-fit: contain; background: transparent; }
-  .c-row .c-name { display: none; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  /* wide pill: room for provider names */
-  #compact.wide .c-row { grid-template-columns: 14px 70px 1fr 44px 52px; }
-  #compact.wide .c-row .c-name { display: block; }
-  #compact.wide .c-row .na { grid-column: 3 / 6; }
-  body.expanded #compact { border-color: rgba(255,255,255,.22); }
 
   /* ---------- settings ---------- */
   main[hidden] { display: none; }
@@ -79,14 +51,10 @@
   .slider-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
   .slider-row input[type=range] { flex: 1; accent-color: #8ab4ff; }
   .slider-row .val { width: 48px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
-  .c-row .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .c-row .track { height: 4px; }
-  .c-row .reset { font-size: 10.5px; }
-  .c-row .pct { font-size: 11px; }
-  .c-row .na { grid-column: 2 / 5; color: var(--muted); font-size: 10.5px; }
 
-  /* ---------- expanded (panel) ---------- */
+  /* ---------- panel ---------- */
   #expanded {
+    display: flex; height: 100%;
     flex-direction: column;
     background: var(--bg);
     border: 1px solid var(--line);
@@ -160,10 +128,8 @@
   .empty { color: var(--muted); text-align: center; padding: 28px 0; }
 </style>
 </head>
-<body class="compact">
-<div class="view" id="compact" title="Click to open or close"></div>
-
-<div class="view" id="expanded">
+<body>
+<div id="expanded">
   <header>
     <h1>AI Usage</h1>
     <span class="ago" id="ago"></span>
@@ -173,7 +139,7 @@
     <button class="btn" id="settingsBtn" title="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
-    <button class="btn" id="collapse" title="Back to taskbar">
+    <button class="btn" id="collapse" title="Close panel">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
     </button>
     <button class="btn" id="close" title="Quit">
@@ -203,7 +169,8 @@
 </div>
 
 <script>
-const REFRESH_MS = 2 * 60 * 1000;
+// This page is the panel. Data is fetched in Go (app.go) and pushed with the
+// "usage" event; the taskbar pill is a native window drawn by Go.
 // Official app icons (taken from the installed apps). A provider without an
 // image falls back to a coloured letter.
 const LOGOS = {
@@ -220,8 +187,7 @@ function logoHTML(u) {
 }
 const $ = (id) => document.getElementById(id);
 const api = () => window.go && window.go.main && window.go.main.App;
-let lastUpdate = null, loading = false, lastData = [];
-let mode = 'compact', expandedAt = 0;
+let lastUpdate = null, loading = false, lastData = [], shownAt = 0;
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -270,46 +236,15 @@ function esc(s) {
 }
 function logoOf(u) { return LOGOS[u.id] || { bg: '#555', ch: (u.name || '?')[0] }; }
 
-/* ---------- compact ---------- */
-// The pill shows each provider's 5-hour limit ("5-hour limit", "5h limit"),
-// optionally restricted to one quota group (Antigravity → Gemini Models).
-// Providers without a 5-hour window (e.g. Codex Free: monthly only) fall
-// back to their most-used limit.
-const COMPACT_GROUP = { antigravity: /gemini/i };
-const FIVE_HOUR = /\b5[\s-]?h(our)?\b/i;
-function topBar(u) {
-  let groups = u.groups || [];
-  const want = COMPACT_GROUP[u.id];
-  if (want && groups.some(g => want.test(g.name || ''))) groups = groups.filter(g => want.test(g.name || ''));
-  const bars = groups.flatMap(g => (g.bars || []).map(b => ({ ...b, groupName: g.name || '' })));
-  const pool = bars.filter(b => FIVE_HOUR.test(b.label));
-  let best = null;
-  for (const b of pool.length ? pool : bars) if (!best || b.usedPct > best.usedPct) best = b;
-  return best;
-}
-// Providers on the taskbar: the user's choice, else the first two.
+// Providers on the taskbar: the user's choice, else the first two
+// (same rule as the native pill, pill_model.go).
 function taskbarItems(items) {
   const ids = (settings.taskbar || []).filter(id => items.some(u => u.id === id));
   if (!ids.length) return items.slice(0, 2);
   return ids.slice(0, 2).map(id => items.find(u => u.id === id));
 }
-function renderCompact(items) {
-  $('compact').classList.toggle('wide', (settings.width || 0) >= 260);
-  $('compact').innerHTML = taskbarItems(items).map(u => {
-    const b = topBar(u);
-    const head = logoHTML(u) + `<span class="c-name">${esc(u.name)}</span>`;
-    if (!b) return `<div class="c-row">${head}<span class="na">${u.error ? 'unavailable' : '—'}</span></div>`;
-    const p = shown(b.usedPct);
-    const tip = [u.name + ' · ' + [b.groupName, b.label].filter(Boolean).join(' · '), Math.floor(p.value) + '% ' + p.word, resetLong(b.resetsAt)].join('\n');
-    return `<div class="c-row" title="${esc(tip)}">${head}
-      <div class="track"><div class="fill" style="width:${p.value}%;background:${color(p.used)}"></div></div>
-      <span class="reset">${esc(resetShort(b.resetsAt))}</span>
-      <span class="pct">${pctHTML(p)}</span>
-    </div>`;
-  }).join('');
-}
 
-/* ---------- expanded ---------- */
+/* ---------- panel ---------- */
 function barRow(b) {
   const p = shown(b.usedPct);
   const tip = [b.tooltip, resetLong(b.resetsAt)].filter(Boolean).join('\n');
@@ -376,7 +311,6 @@ function liveView(items) {
 function render(raw) {
   lastData = raw;
   const items = liveView(raw);
-  renderCompact(items);
   $('list').innerHTML = items.map(card).join('') || '<div class="empty">No providers</div>';
   if (!$('settings').hidden) renderSettings();
 }
@@ -399,16 +333,15 @@ function renderSettings() {
   if (document.activeElement !== s) s.value = settings.width;
   $('widthVal').textContent = settings.width + ' px';
 }
-// Width slider: live preview while dragging, saved on release.
-$('widthSlider').addEventListener('input', async (e) => {
+// Width slider: the taskbar pill resizes live while dragging, saved on release.
+$('widthSlider').addEventListener('input', (e) => {
   settings.width = +e.target.value;
   $('widthVal').textContent = settings.width + ' px';
-  setLayout(await api().SetCompactWidth(settings.width, false));
-  renderCompact(lastData);
+  api().SetCompactWidth(settings.width, false);
 });
-$('widthSlider').addEventListener('change', async (e) => {
+$('widthSlider').addEventListener('change', (e) => {
   settings.width = +e.target.value;
-  setLayout(await api().SetCompactWidth(settings.width, true));
+  api().SetCompactWidth(settings.width, true);
 });
 function saveSettings() {
   api().SaveSettings(settings);
@@ -445,55 +378,19 @@ $('list').addEventListener('click', (e) => {
   render(lastData);
 });
 
-/* ---------- mode switching ---------- */
-// Every mode change gets a sequence number. Go ignores stale requests, and
-// the UI only applies the class for the latest one, so the window size and
-// the visible view can never disagree (e.g. a blur arriving mid-expand).
-let modeSeq = 0;
-async function setMode(m) {
-  mode = m;
-  const seq = ++modeSeq;
-  if (m === 'compact') { document.body.className = 'compact'; showSettings(false); setLayout(null); }
-  const layout = await api().SetMode(m, seq);
-  if (seq !== modeSeq || !layout) return; // superseded by a newer request
-  setLayout(layout);
-  document.body.className = mode;
-}
+/* ---------- open / close ---------- */
+// Go shows the panel (pill click) and hides it; the page only asks to hide.
+function hidePanel() { showSettings(false); api().HidePanel(); }
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') hidePanel(); });
+// Losing focus closes the panel (ignore the moment right after it appears).
+window.addEventListener('blur', () => { if (Date.now() - shownAt > 300) hidePanel(); });
 
-// Place the pill and the panel where Go put them inside the window.
-function place(el, box) {
-  if (!box) { el.style.cssText = ''; return; }
-  Object.assign(el.style, { left: box.x + 'px', top: box.y + 'px', width: box.w + 'px', height: box.h + 'px' });
+/* ---------- data ---------- */
+function gotData(data) {
+  render(data || []);
+  lastUpdate = Date.now();
+  tickAgo();
 }
-function setLayout(l) {
-  if (!l || l.mode !== 'expanded') { place($('compact'), null); place($('expanded'), null); return; }
-  place($('compact'), l.pill);
-  place($('expanded'), l.panel);
-}
-function expand() {
-  if (mode === 'expanded') return;
-  expandedAt = Date.now();
-  setMode('expanded');
-  refresh();
-}
-function collapse() {
-  if (mode === 'compact') return;
-  setMode('compact');
-}
-window.addEventListener('keydown', (e) => { if (e.key === 'Escape') collapse(); });
-
-// Opening/closing is decided in Go (dock_windows.go, watchPillClicks): the
-// WebView gets no mouse input while the pill is embedded in the taskbar and
-// fires spurious blur events while the window is re-parented.
-const togglePanel = () => (mode === 'expanded' ? collapse() : expand());
-(function listen() {
-  if (!(window.runtime && window.runtime.EventsOn)) return setTimeout(listen, 50);
-  window.runtime.EventsOn('pill:click', togglePanel);
-  // Panel open without focus (so no blur): a click elsewhere closes it.
-  window.runtime.EventsOn('outside:click', collapse);
-})();
-
-/* ---------- refresh ---------- */
 function tickAgo() {
   if (!lastUpdate) return;
   const s = Math.round((Date.now() - lastUpdate) / 1000);
@@ -505,9 +402,7 @@ async function refresh() {
   loading = true;
   $('refresh').classList.add('spin');
   try {
-    render(await api().GetUsage());
-    lastUpdate = Date.now();
-    tickAgo();
+    gotData(await api().Refresh());
   } catch (e) {
     $('list').innerHTML = `<div class="empty err">${esc(e)}</div>`;
   } finally {
@@ -517,16 +412,17 @@ async function refresh() {
 }
 
 $('refresh').onclick = refresh;
-$('collapse').onclick = collapse;
+$('collapse').onclick = hidePanel;
 $('close').onclick = () => api().Quit();
 
 async function boot() {
-  if (!api()) return setTimeout(boot, 50);
+  if (!api() || !(window.runtime && window.runtime.EventsOn)) return setTimeout(boot, 50);
+  window.runtime.EventsOn('usage', gotData);
+  window.runtime.EventsOn('panel:shown', () => { shownAt = Date.now(); tickAgo(); });
   try { settings = await api().GetSettings(); } catch {}
-  refresh();
+  try { gotData(await api().GetUsage()); } catch {}
 }
 boot();
-setInterval(refresh, REFRESH_MS);
 setInterval(tickAgo, 30000);
 </script>
 </body>

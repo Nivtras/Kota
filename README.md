@@ -14,8 +14,22 @@ Windows'ta AI hesaplarının kullanım/kota durumunu tek bir küçük, her zaman
 
 ## Görünüm
 
-- **Taskbar pill** (varsayılan): görev çubuğunda Başlat düğmesinin hemen soluna yerleşir (konum UI Automation ile bulunur, `uia_windows.go`), her sağlayıcının en çok kullanılan limitini gösterir. Panel açıkken de yerinde kalır; pencere `SetWindowRgn` ile panel + pill'e kırpılır, arada kalan taskbar tıklanabilir.
-- **Tıkla → panel**: tüm limitler + Claude token detayları. Odak kaybında / Esc ile geri küçülür.
+- **Taskbar pill**: Başlat düğmesinin hemen solunda, her sağlayıcının 5 saatlik limitini (yoksa en çok kullanılan limiti) gösterir.
+- **Tıkla → panel**: tüm limitler + token detayları. Pill'e tekrar tıklayınca, dışarı tıklayınca, Esc ile ya da odak kaybında kapanır.
+- **Ayarlar (⚙ panelde)**: taskbar'da görünecek sağlayıcılar (en fazla 2), taskbar genişliği (180–320 px; 260+ isimleri de gösterir) ve limitlerin "Used" ya da "Remaining" gösterimi. `%APPDATA%\AIUsageWidget\config.json`'a kaydedilir.
+
+## Nasıl çalışıyor
+
+Windows 11'de üçüncü parti taskbar widget API'si yok (hava durumu widget'ı Explorer'ın kendi parçası). Bu yüzden:
+
+| Parça | Dosya | Yaklaşım |
+|---|---|---|
+| Pill | `pill_windows.go` | GDI ile çizilen native pencere, `Shell_TrayWnd`'nin child'ı. `WS_EX_LAYERED` olmalı (Win11 taskbar DirectComposition tabanlı, düz GDI child görünmez). Native pencere olduğu için tıklama/hover doğrudan gelir. |
+| Konum | `uia_windows.go`, `pill_windows.go` | Başlat'ın yeri UI Automation (COM) ile bulunur; taskbar'daki değişiklikler `SetWinEventHook` ile anında yakalanır, 5 sn'lik yedek zamanlayıcı da var. UIA çağrısı pencere thread'inde yapılmaz (Explorer ile karşılıklı beklemeye giriyordu). |
+| Explorer yeniden başlarsa | `pill_windows.go` | Explorer'ın yayınladığı `TaskbarCreated` mesajıyla pill yeniden oluşturulur. |
+| Panel | `panel_windows.go` | Wails penceresi, normal topmost popup; göster/gizle. Hiç re-parent edilmez. |
+| Veri | `app.go` | Go 2 dakikada bir çeker, pill'i günceller ve panele `usage` event'i yollar. |
+| Pill içeriği | `pill_model.go` | Hangi limitin gösterileceği, renk, sıfırlanma metni (test: `pill_model_test.go`). |
 - **Ayarlar (⚙ panelde)**: taskbar'da görünecek sağlayıcılar (en fazla 2), taskbar genişliği (180–320 px; 260+ isimleri de gösterir) ve limitlerin "Used" ya da "Remaining" gösterimi. `%APPDATA%\AIUsageWidget\config.json`'a kaydedilir.
 
 ## Dağıtım
