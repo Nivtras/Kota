@@ -73,6 +73,7 @@ type pill struct {
 	pressed, dragging bool
 	downX, downLeft   int32 // cursor x and pill left at mouse-down (screen px)
 	dragLeft          int32 // pill left while dragging
+	downAt            time.Time
 
 	onClick func(screen rect)               // called on its own goroutine
 	onMoved func(anchor string, offset int) // after a drag; own goroutine
@@ -397,6 +398,13 @@ func winEventProc(hook, event, hwnd, idObject, idChild, thread, ms uintptr) uint
 	return 0
 }
 
+// msgScreenX converts a mouse message's client x (low word of lParam,
+// signed: it can be negative while captured) to screen px.
+func msgScreenX(hwnd, lp uintptr) int32 {
+	r, _ := windowRect(hwnd)
+	return r.L + int32(int16(uint16(lp&0xFFFF)))
+}
+
 // primaryButtonDown reports whether the primary mouse button is physically
 // held right now (honours swapped buttons).
 func primaryButtonDown() bool {
@@ -425,6 +433,7 @@ func (p *pill) finishDrag() {
 	if startLeft > 0 && (scr.L+scr.R)/2 < startLeft {
 		anchor, offset = anchorStart, logical(startLeft-scr.R)
 	}
+	dockLog("pill moved: %s offset %d (pill %d..%d, start %d)", anchor, offset, scr.L, scr.R, startLeft)
 	p.mu.Lock()
 	p.anchor, p.offset, p.dragging = anchor, offset, false
 	p.mu.Unlock()
@@ -455,11 +464,12 @@ func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 	case wmMouseActivate:
 		return maNoActivate
 	case wmLButtonDown:
-		var pt point
-		pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+		// Use the coordinates carried by the message, not the cursor "now":
+		// input routed through Explorer's queue can be handled late.
+		x := msgScreenX(hwnd, lp)
 		p.mu.Lock()
 		p.pressed, p.dragging = true, false
-		p.downX, p.downLeft = pt.X, p.screen.L
+		p.downX, p.downLeft, p.downAt = x, p.screen.L, time.Now()
 		p.mu.Unlock()
 		pSetCapture.Call(hwnd)
 		return 0
@@ -487,11 +497,13 @@ func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 			return 0
 		}
 		if pressed {
-			var pt point
-			pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+			x := msgScreenX(hwnd, lp)
 			p.mu.Lock()
-			dx := pt.X - p.downX
-			if !p.dragging && (dx > int32(5*dpiScale(hwnd)) || dx < -int32(5*dpiScale(hwnd))) {
+			dx := x - p.downX
+			// A drag needs real movement while the button is held for a
+			// moment; a click (even a slightly shaky one) never moves the pill.
+			threshold := int32(6 * dpiScale(hwnd))
+			if !p.dragging && (dx > threshold || dx < -threshold) && time.Since(p.downAt) > 150*time.Millisecond {
 				p.dragging = true
 			}
 			if p.dragging {

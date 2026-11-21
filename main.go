@@ -36,6 +36,11 @@ func main() {
 			WindowIsTranslucent:  true,
 			BackdropType:         windows.None,
 			DisableWindowIcon:    true,
+			// The panel is a small static page: software rendering is plenty
+			// and saves ~50 MB (measured: 225 → 177 MB private). Wails' Go
+			// WebView2 loader ignores WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS,
+			// so this is the only Chromium switch available.
+			WebviewGpuIsDisabled: true,
 		},
 	})
 	if err != nil {
