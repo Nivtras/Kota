@@ -54,6 +54,8 @@ var (
 	pKillTimer                  = user32.NewProc("KillTimer")
 	pLoadCursorW                = user32.NewProc("LoadCursorW")
 	pSetCursor                  = user32.NewProc("SetCursor")
+	pSetCapture                 = user32.NewProc("SetCapture")
+	pReleaseCapture             = user32.NewProc("ReleaseCapture")
 	pTrackMouseEvent            = user32.NewProc("TrackMouseEvent")
 	pDrawTextW                  = user32.NewProc("DrawTextW")
 	pFillRect                   = user32.NewProc("FillRect")
@@ -116,7 +118,9 @@ const (
 	wmMouseActivate  = 0x0021
 	wmTimer          = 0x0113
 	wmMouseMove      = 0x0200
+	wmLButtonDown    = 0x0201
 	wmLButtonUp      = 0x0202
+	wmCaptureChanged = 0x0215
 	wmMouseLeave     = 0x02A3
 	wmDisplayChange  = 0x007E
 	wmSettingChange  = 0x001A

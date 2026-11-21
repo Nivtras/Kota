@@ -64,10 +64,27 @@ type pill struct {
 	lastClick      time.Time // window thread only
 	lookingUp      atomic.Bool
 
-	onClick func(screen rect) // called on its own goroutine
-	logos   map[string][]byte // provider id → PNG
+	// Position: the pill's right edge sits `offset` logical px left of the
+	// anchor ("start": Start button's left edge, "tray": notification area).
+	anchor string
+	offset int
+
+	// Drag state (window thread only).
+	pressed, dragging bool
+	downX, downLeft   int32 // cursor x and pill left at mouse-down (screen px)
+	dragLeft          int32 // pill left while dragging
+
+	onClick func(screen rect)               // called on its own goroutine
+	onMoved func(anchor string, offset int) // after a drag; own goroutine
+	logos   map[string][]byte               // provider id → PNG
 	icons   map[iconKey]uintptr
 }
+
+const (
+	anchorStart   = "start"
+	anchorTray    = "tray"
+	defaultOffset = gap
+)
 
 type iconKey struct {
 	id   string
@@ -79,11 +96,27 @@ var thePill *pill // the window procedures need a package-level receiver
 // Created once: syscall.NewCallback slots are limited and never freed.
 var winEventCallback = syscall.NewCallback(winEventProc)
 
-func newPill(width int, logos map[string][]byte, onClick func(rect)) *pill {
-	p := &pill{width: clampWidth(width), logos: logos, onClick: onClick, icons: map[iconKey]uintptr{}}
+func newPill(width int, anchor string, offset int, logos map[string][]byte,
+	onClick func(rect), onMoved func(string, int)) *pill {
+	if anchor != anchorTray {
+		anchor = anchorStart
+	}
+	p := &pill{width: clampWidth(width), anchor: anchor, offset: offset, logos: logos,
+		onClick: onClick, onMoved: onMoved, icons: map[iconKey]uintptr{}}
 	thePill = p
 	go p.loop()
 	return p
+}
+
+// setPosition moves the pill to an anchor/offset (e.g. "reset position").
+func (p *pill) setPosition(anchor string, offset int) {
+	p.mu.Lock()
+	p.anchor, p.offset = anchor, offset
+	h := p.host
+	p.mu.Unlock()
+	if h != 0 {
+		pPostMessageW.Call(h, msgRelayout, 0, 0)
+	}
 }
 
 // ---------- public API (any goroutine) ----------
@@ -227,10 +260,23 @@ func (p *pill) lookupStart() {
 	}()
 }
 
-// layout positions the pill just left of Start. Window thread.
+// trayLeft is the left edge of the notification area (screen px).
+func trayLeftOf(tb uintptr, tbr rect, s float64) int32 {
+	left := tbr.R - int32(320*s)
+	if tn, _, _ := pFindWindowExW.Call(tb, 0, uintptr(unsafe.Pointer(utf16("TrayNotifyWnd"))), 0); tn != 0 {
+		if r, ok := windowRect(tn); ok && r.L > tbr.L {
+			left = r.L
+		}
+	}
+	return left
+}
+
+// layout positions the pill relative to its anchor (or where it is being
+// dragged). Window thread.
 func (p *pill) layout() {
 	p.mu.Lock()
 	h, tb, width, startLeft := p.hwnd, p.tb, p.width, p.startLeft
+	anchor, offset, dragging, dragLeft := p.anchor, p.offset, p.dragging, p.dragLeft
 	p.mu.Unlock()
 	if h == 0 {
 		return
@@ -242,20 +288,24 @@ func (p *pill) layout() {
 	s := dpiScale(tb)
 	px := func(v int) int32 { return int32(float64(v)*s + 0.5) }
 
-	trayLeft := tbr.R - px(320)
-	if tn, _, _ := pFindWindowExW.Call(tb, 0, uintptr(unsafe.Pointer(utf16("TrayNotifyWnd"))), 0); tn != 0 {
-		if r, ok := windowRect(tn); ok && r.L > tbr.L {
-			trayLeft = r.L
-		}
-	}
+	trayLeft := trayLeftOf(tb, tbr, s)
 	w, ht := px(width), px(compactH)
 	if ht > tbr.h()-px(4) {
 		ht = tbr.h() - px(4)
 	}
-	x := startLeft - px(gap) - w
-	if startLeft == 0 || x < tbr.L+px(gap) {
-		x = trayLeft - px(gap) - w // left-aligned taskbar or Start unknown
+	var x int32
+	switch {
+	case dragging:
+		x = dragLeft
+	case anchor == anchorStart && startLeft > 0:
+		x = startLeft - px(offset) - w
+	case anchor == anchorStart:
+		x = trayLeft - px(defaultOffset) - w // Start unknown: next to the tray
+	default:
+		x = trayLeft - px(offset) - w
 	}
+	// Stay on the taskbar and off the notification area.
+	x = max(tbr.L+px(4), min(x, trayLeft-px(4)-w))
 	y := tbr.T + (tbr.h()-ht)/2
 	scr := rect{x, y, x + w, y + ht}
 
@@ -347,6 +397,44 @@ func winEventProc(hook, event, hwnd, idObject, idChild, thread, ms uintptr) uint
 	return 0
 }
 
+// primaryButtonDown reports whether the primary mouse button is physically
+// held right now (honours swapped buttons).
+func primaryButtonDown() bool {
+	vk := uintptr(0x01) // VK_LBUTTON
+	if swapped, _, _ := pGetSystemMetrics.Call(23); swapped != 0 {
+		vk = 0x02
+	}
+	st, _, _ := pGetAsyncKeyState.Call(vk)
+	return st&0x8000 != 0
+}
+
+// finishDrag turns the dropped position into an anchor + offset: left of
+// Start follows Start (it moves as apps open/close); right of it follows the
+// notification area. Window thread.
+func (p *pill) finishDrag() {
+	p.mu.Lock()
+	tb, startLeft, scr := p.tb, p.startLeft, p.screen
+	p.mu.Unlock()
+	tbr, ok := windowRect(tb)
+	if !ok {
+		return
+	}
+	s := dpiScale(tb)
+	logical := func(v int32) int { return int(float64(v)/s + 0.5) }
+	anchor, offset := anchorTray, logical(trayLeftOf(tb, tbr, s)-scr.R)
+	if startLeft > 0 && (scr.L+scr.R)/2 < startLeft {
+		anchor, offset = anchorStart, logical(startLeft-scr.R)
+	}
+	p.mu.Lock()
+	p.anchor, p.offset, p.dragging = anchor, offset, false
+	p.mu.Unlock()
+	pReleaseCapture.Call()
+	p.layout()
+	if p.onMoved != nil {
+		go p.onMoved(anchor, offset)
+	}
+}
+
 func (p *pill) repaint() {
 	p.mu.Lock()
 	h := p.hwnd
@@ -366,15 +454,64 @@ func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 		return 1
 	case wmMouseActivate:
 		return maNoActivate
+	case wmLButtonDown:
+		var pt point
+		pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+		p.mu.Lock()
+		p.pressed, p.dragging = true, false
+		p.downX, p.downLeft = pt.X, p.screen.L
+		p.mu.Unlock()
+		pSetCapture.Call(hwnd)
+		return 0
 	case wmMouseMove:
 		p.mu.Lock()
 		was := p.hover
 		p.hover = true
+		pressed := p.pressed
 		p.mu.Unlock()
 		if !was {
 			tme := trackMouseEvent{Size: uint32(unsafe.Sizeof(trackMouseEvent{})), Flags: tmeLeave, HwndTrack: hwnd}
 			pTrackMouseEvent.Call(uintptr(unsafe.Pointer(&tme)))
 			pInvalidateRect.Call(hwnd, 0, 0)
+		}
+		if pressed && !primaryButtonDown() {
+			// The button was released without us seeing WM_LBUTTONUP: no drag.
+			p.mu.Lock()
+			wasDrag := p.dragging
+			p.pressed, p.dragging = false, false
+			p.mu.Unlock()
+			pReleaseCapture.Call()
+			if wasDrag {
+				p.layout()
+			}
+			return 0
+		}
+		if pressed {
+			var pt point
+			pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+			p.mu.Lock()
+			dx := pt.X - p.downX
+			if !p.dragging && (dx > int32(5*dpiScale(hwnd)) || dx < -int32(5*dpiScale(hwnd))) {
+				p.dragging = true
+			}
+			if p.dragging {
+				p.dragLeft = p.downLeft + dx
+			}
+			drag := p.dragging
+			p.mu.Unlock()
+			if drag {
+				p.layout()
+			}
+		}
+		return 0
+	case wmCaptureChanged:
+		// Capture taken away mid-drag (e.g. Start opened): snap back.
+		p.mu.Lock()
+		wasDrag := p.dragging
+		p.pressed, p.dragging = false, false
+		p.mu.Unlock()
+		if wasDrag {
+			p.layout()
 		}
 		return 0
 	case wmMouseLeave:
@@ -384,9 +521,18 @@ func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 		pInvalidateRect.Call(hwnd, 0, 0)
 		return 0
 	case wmLButtonUp:
+		p.mu.Lock()
+		pressed, dragging := p.pressed, p.dragging
+		p.pressed = false
+		p.mu.Unlock()
+		if dragging {
+			p.finishDrag() // releases capture → WM_CAPTURECHANGED clears state
+			return 0
+		}
+		pReleaseCapture.Call()
 		// The same click can arrive twice (input is routed through Explorer's
 		// queue); one click per 250 ms is plenty.
-		if time.Since(p.lastClick) > 250*time.Millisecond && p.onClick != nil {
+		if pressed && time.Since(p.lastClick) > 250*time.Millisecond && p.onClick != nil {
 			p.lastClick = time.Now()
 			go p.onClick(p.screenRect())
 		}

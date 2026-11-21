@@ -50,6 +50,11 @@
   .seg button.on { background: rgba(255,255,255,.14); color: var(--text); }
   .slider-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
   .slider-row input[type=range] { flex: 1; accent-color: #8ab4ff; }
+  .link-btn {
+    border: 1px solid var(--line); background: var(--pill); color: var(--text);
+    font: inherit; font-size: 11px; padding: 4px 10px; border-radius: 6px; cursor: pointer;
+  }
+  .link-btn:hover { background: rgba(255,255,255,.14); }
   .slider-row .val { width: 48px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
 
   /* ---------- panel ---------- */
@@ -157,6 +162,15 @@
         <input type="range" id="widthSlider" min="180" max="320" step="10">
         <span class="val" id="widthVal"></span>
       </div>
+      <div class="s-title" style="margin-top:12px">Position</div>
+      <div class="s-hint">Drag the pill along the taskbar to move it. Left of Start it follows the Start button; right of it, it stays by the clock.</div>
+      <button class="link-btn" id="resetPos">Reset position</button>
+    </section>
+    <section class="card">
+      <label class="choice">
+        <input type="checkbox" id="autostart">
+        <span>Start with Windows</span>
+      </label>
     </section>
     <section class="card">
       <div class="s-title">Show limits as</div>
@@ -332,7 +346,13 @@ function renderSettings() {
   if (settings.minWidth) { s.min = settings.minWidth; s.max = settings.maxWidth; }
   if (document.activeElement !== s) s.value = settings.width;
   $('widthVal').textContent = settings.width + ' px';
+  $('autostart').checked = !!settings.autostart;
 }
+$('resetPos').onclick = () => api().ResetPillPosition();
+$('autostart').addEventListener('change', async (e) => {
+  settings.autostart = await api().SetAutostart(e.target.checked);
+  e.target.checked = settings.autostart; // reflect what actually happened
+});
 // Width slider: the taskbar pill resizes live while dragging, saved on release.
 $('widthSlider').addEventListener('input', (e) => {
   settings.width = +e.target.value;

@@ -8,6 +8,8 @@ import (
 
 type config struct {
 	CompactWidth int      `json:"compactWidth,omitempty"` // taskbar pill width, logical px (0 = default)
+	PillAnchor   string   `json:"pillAnchor,omitempty"`   // "start" (default) | "tray"
+	PillOffset   *int     `json:"pillOffset,omitempty"`   // logical px from the anchor to the pill's right edge
 	Taskbar      []string `json:"taskbar,omitempty"`      // provider IDs on the taskbar pill
 	Display      string   `json:"display,omitempty"`      // "used" (default) | "remaining"
 }

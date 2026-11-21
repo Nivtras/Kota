@@ -21,6 +21,7 @@ const (
 
 type App struct {
 	ctx   context.Context
+	cfgMu sync.Mutex // guards cfg writes from the pill's drag callback
 	cfg   config
 	pill  *pill
 	panel *panel
@@ -35,7 +36,18 @@ func NewApp() *App { return &App{cfg: loadConfig(), panel: &panel{}} }
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.panel.onShown = func() { runtime.EventsEmit(ctx, eventShown) }
-	a.pill = newPill(a.cfg.CompactWidth, loadLogos(), func(r rect) { a.panel.toggle(r) })
+	offset := defaultOffset
+	if a.cfg.PillOffset != nil {
+		offset = *a.cfg.PillOffset
+	}
+	a.pill = newPill(a.cfg.CompactWidth, a.cfg.PillAnchor, offset, loadLogos(),
+		func(r rect) { a.panel.toggle(r) },
+		func(anchor string, off int) { // the user dragged the pill
+			a.cfgMu.Lock()
+			a.cfg.PillAnchor, a.cfg.PillOffset = anchor, &off
+			saveConfig(a.cfg)
+			a.cfgMu.Unlock()
+		})
 	go a.refreshLoop()
 }
 
@@ -126,28 +138,51 @@ func (a *App) HidePanel() { a.panel.hideFromUI() }
 // SetCompactWidth resizes the taskbar pill (logical px); save=true persists it.
 func (a *App) SetCompactWidth(w int, save bool) {
 	w = clampWidth(w)
+	a.cfgMu.Lock()
 	a.cfg.CompactWidth = w
-	if a.pill != nil {
-		a.pill.setWidth(w)
-	}
 	if save {
 		saveConfig(a.cfg)
 	}
+	a.cfgMu.Unlock()
+	if a.pill != nil {
+		a.pill.setWidth(w)
+	}
+}
+
+// ResetPillPosition puts the pill back right before the Start button.
+func (a *App) ResetPillPosition() {
+	a.cfgMu.Lock()
+	a.cfg.PillAnchor, a.cfg.PillOffset = "", nil
+	saveConfig(a.cfg)
+	a.cfgMu.Unlock()
+	if a.pill != nil {
+		a.pill.setPosition(anchorStart, defaultOffset)
+	}
+}
+
+// SetAutostart turns "Start with Windows" on or off; returns the new state.
+func (a *App) SetAutostart(on bool) bool {
+	if err := setAutostart(on); err != nil {
+		dockLog("autostart: %v", err)
+	}
+	return autostartEnabled()
 }
 
 // Settings are the user's display preferences, edited in the panel.
 type Settings struct {
-	Taskbar  []string `json:"taskbar"`  // provider IDs shown on the taskbar (max 2)
-	Display  string   `json:"display"`  // "used" | "remaining"
-	Width    int      `json:"width"`    // taskbar pill width, logical px
-	MinWidth int      `json:"minWidth"` // slider bounds (read-only)
-	MaxWidth int      `json:"maxWidth"`
+	Taskbar   []string `json:"taskbar"`  // provider IDs shown on the taskbar (max 2)
+	Display   string   `json:"display"`  // "used" | "remaining"
+	Width     int      `json:"width"`    // taskbar pill width, logical px
+	MinWidth  int      `json:"minWidth"` // slider bounds (read-only)
+	MaxWidth  int      `json:"maxWidth"`
+	Autostart bool     `json:"autostart"` // read-only here; changed via SetAutostart
 }
 
 func (a *App) GetSettings() Settings {
 	s := Settings{
 		Taskbar: a.cfg.Taskbar, Display: a.cfg.Display,
 		Width: clampWidth(a.cfg.CompactWidth), MinWidth: minCompactW, MaxWidth: maxCompactW,
+		Autostart: autostartEnabled(),
 	}
 	if s.Display != "remaining" {
 		s.Display = "used"
@@ -164,8 +199,10 @@ func (a *App) SaveSettings(s Settings) {
 	if s.Display != "remaining" {
 		s.Display = "used"
 	}
+	a.cfgMu.Lock()
 	a.cfg.Taskbar, a.cfg.Display = s.Taskbar, s.Display
 	saveConfig(a.cfg)
+	a.cfgMu.Unlock()
 	a.updatePill()
 }
 
