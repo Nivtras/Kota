@@ -27,13 +27,11 @@ var (
 	pGetDpiForWindow            = user32.NewProc("GetDpiForWindow")
 	pShowWindow                 = user32.NewProc("ShowWindow")
 	pIsWindow                   = user32.NewProc("IsWindow")
-	pIsWindowVisible            = user32.NewProc("IsWindowVisible")
 	pIsChild                    = user32.NewProc("IsChild")
 	pSetForegroundWindow        = user32.NewProc("SetForegroundWindow")
 	pGetForegroundWindow        = user32.NewProc("GetForegroundWindow")
 	pBringWindowToTop           = user32.NewProc("BringWindowToTop")
 	pGetWindowThreadProcessId   = user32.NewProc("GetWindowThreadProcessId")
-	pAttachThreadInput          = user32.NewProc("AttachThreadInput")
 	pGetAsyncKeyState           = user32.NewProc("GetAsyncKeyState")
 	pKeybdEvent                 = user32.NewProc("keybd_event")
 	pGetCursorPos               = user32.NewProc("GetCursorPos")
@@ -54,7 +52,6 @@ var (
 	pSetTimer                   = user32.NewProc("SetTimer")
 	pKillTimer                  = user32.NewProc("KillTimer")
 	pLoadCursorW                = user32.NewProc("LoadCursorW")
-	pSetCursor                  = user32.NewProc("SetCursor")
 	pSetCapture                 = user32.NewProc("SetCapture")
 	pReleaseCapture             = user32.NewProc("ReleaseCapture")
 	pTrackMouseEvent            = user32.NewProc("TrackMouseEvent")
@@ -63,9 +60,6 @@ var (
 	pSetWinEventHook            = user32.NewProc("SetWinEventHook")
 	pUnhookWinEvent             = user32.NewProc("UnhookWinEvent")
 	pSetLayeredWindowAttributes = user32.NewProc("SetLayeredWindowAttributes")
-	pUpdateLayeredWindow        = user32.NewProc("UpdateLayeredWindow")
-	pGetDC                      = user32.NewProc("GetDC")
-	pReleaseDC                  = user32.NewProc("ReleaseDC")
 
 	pCreateCompatibleDC     = gdi32.NewProc("CreateCompatibleDC")
 	pCreateCompatibleBitmap = gdi32.NewProc("CreateCompatibleBitmap")
@@ -81,7 +75,6 @@ var (
 	pSetTextColor           = gdi32.NewProc("SetTextColor")
 	pSetBkMode              = gdi32.NewProc("SetBkMode")
 	pGetTextExtentPoint32W  = gdi32.NewProc("GetTextExtentPoint32W")
-	pGetStockObject         = gdi32.NewProc("GetStockObject")
 	pCreateRoundRectRgn     = gdi32.NewProc("CreateRoundRectRgn")
 
 	pGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
@@ -94,7 +87,6 @@ const (
 
 	wsChild        = 0x40000000
 	wsPopup        = 0x80000000
-	wsVisible      = 0x10000000
 	wsClipSiblings = 0x04000000
 	wsExToolWindow = 0x00000080
 	wsExAppWindow  = 0x00040000
@@ -102,21 +94,19 @@ const (
 	wsExLayered    = 0x00080000
 	lwaAlpha       = 0x2
 
-	swpNoSize       = 0x0001
-	swpNoMove       = 0x0002
-	swpNoActivate   = 0x0010
-	swpFrameChanged = 0x0020
-	swpShowWindow   = 0x0040
-	swHide          = 0
-	swShowNoActive  = 4
-	hwndTop         = 0
-	hwndTopmost     = ^uintptr(0) // -1
+	swpNoSize      = 0x0001
+	swpNoMove      = 0x0002
+	swpNoActivate  = 0x0010
+	swpShowWindow  = 0x0040
+	swHide         = 0
+	swShowNoActive = 4
+	hwndTop        = 0
+	hwndTopmost    = ^uintptr(0) // -1
 
 	wmDestroy        = 0x0002
 	wmClose          = 0x0010
 	wmPaint          = 0x000F
 	wmEraseBkgnd     = 0x0014
-	wmSetCursor      = 0x0020
 	wmMouseActivate  = 0x0021
 	wmTimer          = 0x0113
 	wmMouseMove      = 0x0200

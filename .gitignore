@@ -3,3 +3,4 @@ frontend/wailsjs/
 *.exe
 .claude/settings.local.json
 release/
+*.zip

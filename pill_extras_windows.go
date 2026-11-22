@@ -34,7 +34,6 @@ const (
 	ttmAddToolW       = 0x0400 + 50
 	ttmUpdateTipTextW = 0x0400 + 57
 	ttmSetMaxTipWidth = 0x0400 + 24
-	ttmDelTool        = 0x0400 + 51
 )
 
 // Menu commands.
