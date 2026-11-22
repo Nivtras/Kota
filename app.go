@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"time"
@@ -39,7 +40,10 @@ type App struct {
 
 func NewApp() *App {
 	path := filepath.Join(filepath.Dir(configPath()), "notify-state.json")
-	return &App{cfg: loadConfig(), panel: &panel{}, notifier: newNotifier(path), kick: make(chan struct{}, 1)}
+	cfg := loadConfig()
+	n := newNotifier(path)
+	n.setLevels(cfg.NotifyWarn, cfg.NotifyCrit)
+	return &App{cfg: cfg, panel: &panel{}, notifier: n, kick: make(chan struct{}, 1)}
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -224,9 +228,25 @@ func (a *App) SetNotifications(on bool) {
 	a.cfgMu.Unlock()
 }
 
+// SetNotifyLevels sets the warning and critical thresholds (% used) and
+// returns the values actually stored (kept 50 ≤ warn < critical ≤ 100).
+func (a *App) SetNotifyLevels(warn, critical int) []int {
+	warn, critical = normLevels(warn, critical)
+	a.cfgMu.Lock()
+	a.cfg.NotifyWarn, a.cfg.NotifyCrit = warn, critical
+	saveConfig(a.cfg)
+	a.cfgMu.Unlock()
+	a.notifier.setLevels(warn, critical)
+	return []int{warn, critical}
+}
+
 // TestNotification shows a sample notification (settings button).
 func (a *App) TestNotification() {
-	notifyUser("AI Usage notifications are on", "You'll be told at 80% and 95% of a limit, and when it's available again.")
+	a.cfgMu.Lock()
+	w, c := normLevels(a.cfg.NotifyWarn, a.cfg.NotifyCrit)
+	a.cfgMu.Unlock()
+	notifyUser("AI Usage notifications are on",
+		fmt.Sprintf("You'll be told at %d%% and %d%% of a limit, and when it's available again.", w, c))
 }
 
 func (a *App) snapshot() []providers.Usage {
@@ -305,6 +325,8 @@ type Settings struct {
 	Notify    bool     `json:"notify"`    // read-only here; changed via SetNotifications
 	Follow    bool     `json:"follow"`    // show the tool in use first; changed via SetFollowActive
 	Multi     bool     `json:"multi"`     // pill on every monitor's taskbar; changed via SetAllMonitors
+	Warn      int      `json:"warn"`      // notification thresholds; changed via SetNotifyLevels
+	Critical  int      `json:"critical"`
 
 	active string // provider of the app in use (follow mode), not sent to the UI
 }
@@ -318,6 +340,7 @@ func (a *App) GetSettings() Settings {
 		Follow:    a.cfg.FollowActive,
 		Multi:     a.cfg.AllMonitors,
 	}
+	s.Warn, s.Critical = normLevels(a.cfg.NotifyWarn, a.cfg.NotifyCrit)
 	if s.Display != "remaining" {
 		s.Display = "used"
 	}

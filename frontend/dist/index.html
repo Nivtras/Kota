@@ -71,6 +71,11 @@
   .seg button.on { background: var(--strong); color: var(--text); }
   .slider-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
   .slider-row input[type=range] { flex: 1; accent-color: var(--accent); }
+  .levels { display: flex; align-items: center; gap: 6px; margin: 2px 0 4px 26px; color: var(--muted); font-size: 11px; }
+  .levels select {
+    background: var(--pill); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; font: inherit; padding: 2px 4px;
+  }
   .link-btn {
     border: 1px solid var(--line); background: var(--pill); color: var(--text);
     font: inherit; font-size: 11px; padding: 4px 10px; border-radius: 6px; cursor: pointer;
@@ -207,8 +212,12 @@
       </label>
       <label class="choice">
         <input type="checkbox" id="notify">
-        <span>Notify at 80% / 95% and when a limit is available again</span>
+        <span>Notify when a limit gets close and when it's available again</span>
       </label>
+      <div class="levels">
+        <span>Warn at</span><select id="warnAt"></select>
+        <span>Critical at</span><select id="critAt"></select>
+      </div>
       <button class="link-btn" id="testNotify" style="margin:4px 0 0 26px">Send a test notification</button>
     </section>
     <section class="card">
@@ -418,7 +427,27 @@ function renderSettings() {
   $('notify').checked = settings.notify !== false;
   $('follow').checked = !!settings.follow;
   $('multi').checked = !!settings.multi;
+  fillLevels();
 }
+// Notification thresholds: warn 50–95, critical above warn up to 100.
+function fillLevels() {
+  const w = settings.warn || 80, c = settings.critical || 95;
+  const opts = (from, to, v) => {
+    let h = '';
+    for (let p = from; p <= to; p += 5) h += `<option value="${p}"${p === v ? ' selected' : ''}>${p}%</option>`;
+    return h;
+  };
+  $('warnAt').innerHTML = opts(50, 95, w);
+  $('critAt').innerHTML = opts(Math.ceil((w + 1) / 5) * 5, 100, c);
+  $('warnAt').disabled = $('critAt').disabled = settings.notify === false;
+}
+async function saveLevels() {
+  const r = await api().SetNotifyLevels(+$('warnAt').value, +$('critAt').value);
+  settings.warn = r[0]; settings.critical = r[1];
+  fillLevels();
+}
+$('warnAt').addEventListener('change', saveLevels);
+$('critAt').addEventListener('change', saveLevels);
 $('multi').addEventListener('change', (e) => {
   settings.multi = e.target.checked;
   api().SetAllMonitors(settings.multi);
@@ -430,6 +459,7 @@ $('follow').addEventListener('change', (e) => {
 $('notify').addEventListener('change', (e) => {
   settings.notify = e.target.checked;
   api().SetNotifications(settings.notify);
+  fillLevels();
 });
 $('testNotify').onclick = () => api().TestNotification();
 $('resetPos').onclick = () => api().ResetPillPosition();

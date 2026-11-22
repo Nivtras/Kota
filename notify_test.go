@@ -52,3 +52,25 @@ func TestNotifier(t *testing.T) {
 		t.Fatalf("stale: %+v", a)
 	}
 }
+
+func TestNotifierLevels(t *testing.T) {
+	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	data := []providers.Usage{{ID: "c", Name: "C", Groups: []providers.Group{{Bars: []providers.Bar{
+		{Label: "L", UsedPct: 72, ResetsAt: now.Add(time.Hour).Format(time.RFC3339)}}}}}}
+	n := newNotifier("")
+	if a := n.check(data, now); len(a) != 0 {
+		t.Fatalf("default 80: %v", a)
+	}
+	n = newNotifier("")
+	n.setLevels(70, 90)
+	if a := n.check(data, now); len(a) != 1 || a[0].Title != "C · L at 72%" {
+		t.Fatalf("warn 70: %+v", a)
+	}
+	for _, c := range []struct{ w, c, ww, wc int }{
+		{0, 0, 80, 95}, {30, 40, 50, 51}, {95, 90, 95, 96}, {99, 120, 99, 100}, {60, 100, 60, 100},
+	} {
+		if w, cr := normLevels(c.w, c.c); w != c.ww || cr != c.wc {
+			t.Errorf("normLevels(%d,%d) = %d,%d want %d,%d", c.w, c.c, w, cr, c.ww, c.wc)
+		}
+	}
+}

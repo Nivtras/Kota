@@ -1,6 +1,7 @@
 package main
 
-// Usage notifications: warn at 80% and 95% of a limit (once per window),
+// Usage notifications: warn at 80% and 95% of a limit by default, both
+// adjustable (once per window),
 // and say when a limit that was nearly used up is available again. Uses
 // the data the app already fetches — no extra requests.
 
@@ -17,10 +18,10 @@ import (
 )
 
 const (
-	warnAt      = 80
-	criticalAt  = 95
-	refilledMax = 20 // "available again" when it drops to this or below
-	sentTTL     = 8 * 24 * time.Hour
+	defaultWarn     = 80
+	defaultCritical = 95
+	refilledMax     = 20 // "available again" when it drops to this or below
+	sentTTL         = 8 * 24 * time.Hour
 )
 
 type alert struct {
@@ -32,10 +33,33 @@ type notifier struct {
 	sent map[string]time.Time // "<bar id>|<window>|80" → when sent (persisted)
 	prev map[string]float64   // last seen used% per bar (this run only)
 	path string               // "" = don't persist (tests)
+
+	warn, critical float64 // thresholds in % used
+}
+
+// normLevels keeps thresholds sane: 50 ≤ warn < critical ≤ 100; 0 = default.
+func normLevels(warn, critical int) (int, int) {
+	if warn == 0 {
+		warn = defaultWarn
+	}
+	if critical == 0 {
+		critical = defaultCritical
+	}
+	warn = max(50, min(warn, 99))
+	critical = max(warn+1, min(critical, 100))
+	return warn, critical
+}
+
+func (n *notifier) setLevels(warn, critical int) {
+	w, c := normLevels(warn, critical)
+	n.mu.Lock()
+	n.warn, n.critical = float64(w), float64(c)
+	n.mu.Unlock()
 }
 
 func newNotifier(path string) *notifier {
-	n := &notifier{sent: map[string]time.Time{}, prev: map[string]float64{}, path: path}
+	n := &notifier{sent: map[string]time.Time{}, prev: map[string]float64{}, path: path,
+		warn: defaultWarn, critical: defaultCritical}
 	if path != "" {
 		if b, err := os.ReadFile(path); err == nil {
 			_ = json.Unmarshal(b, &n.sent)
@@ -71,7 +95,7 @@ func (n *notifier) check(items []providers.Usage, now time.Time) []alert {
 					used = 0 // window already reset since this data was taken
 				}
 
-				if prev, ok := n.prev[id]; ok && prev >= warnAt && used <= refilledMax {
+				if prev, ok := n.prev[id]; ok && prev >= n.warn && used <= refilledMax {
 					out = append(out, alert{name + " is available again", fmt.Sprintf("Now %.0f%% used.", used)})
 				}
 				n.prev[id] = used
@@ -82,11 +106,12 @@ func (n *notifier) check(items []providers.Usage, now time.Time) []alert {
 				}
 				in := "Resets in " + shortDuration(reset.Sub(now)) + "."
 				switch {
-				case used >= criticalAt && n.sent[id+"|"+wk+"|95"].IsZero():
+				// Sent-keys keep their historic "80"/"95" names: warning / critical.
+				case used >= n.critical && n.sent[id+"|"+wk+"|95"].IsZero():
 					n.sent[id+"|"+wk+"|95"], n.sent[id+"|"+wk+"|80"] = now, now
 					out = append(out, alert{fmt.Sprintf("%s at %.0f%% — almost out", name, used), in})
 					changed = true
-				case used >= warnAt && used < criticalAt && n.sent[id+"|"+wk+"|80"].IsZero():
+				case used >= n.warn && used < n.critical && n.sent[id+"|"+wk+"|80"].IsZero():
 					n.sent[id+"|"+wk+"|80"] = now
 					out = append(out, alert{fmt.Sprintf("%s at %.0f%%", name, used), in})
 					changed = true
