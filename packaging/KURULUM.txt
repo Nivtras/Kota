@@ -1,12 +1,12 @@
-AI Usage Widget — Kurulum
+Kota — Kurulum
 =========================
 
-AIUsageWidget.exe'ye çift tıkla. İlk açılışta sorar:
-  * Evet  : bu kullanıcı için kurar (%LOCALAPPDATA%\Programs\AIUsageWidget),
+Kota.exe'ye çift tıkla. İlk açılışta sorar:
+  * Evet  : bu kullanıcı için kurar (%LOCALAPPDATA%\Programs\Kota),
             Başlat menüsüne ekler. Yönetici izni gerekmez.
-            Kaldırmak için: Ayarlar → Uygulamalar → AI Usage Widget → Kaldır.
+            Kaldırmak için: Ayarlar → Uygulamalar → Kota → Kaldır.
   * Hayır : kurmadan, bulunduğu yerden çalışır (bir daha sormaz).
-Güncellemek için: yeni AIUsageWidget.exe'yi çalıştır, "Evet" de; açık olan
+Güncellemek için: yeni Kota.exe'yi çalıştır, "Evet" de; açık olan
 kopya kapanıp yenisi başlar, ayarların korunur.
 
 Ne gerekir
@@ -37,7 +37,7 @@ Notlar
 ------
 - Windows SmartScreen "tanınmayan uygulama" uyarısı verebilir (exe imzalı değil):
   "Ek bilgi" → "Yine de çalıştır".
-- Ayarlar ve önbellek: %APPDATA%\AIUsageWidget\
+- Ayarlar ve önbellek: %APPDATA%\Kota\
 - Widget giriş bilgilerini sadece okur; hiçbir veriyi kendi sunucularına
   (Anthropic, OpenAI, Google) dışında bir yere göndermez.
 - Kullanılan endpoint'ler resmi olarak belgelenmemiştir; araç güncellemeleri

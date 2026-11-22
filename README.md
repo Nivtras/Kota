@@ -1,63 +1,97 @@
-# AI Usage Widget
+<p align="center"><img src="docs/logo.png" width="96" alt="Kota logo"></p>
 
-Windows'ta AI hesaplarının kullanım/kota durumunu tek bir küçük, her zaman üstte duran pencerede gösterir. Go + Wails v2.
+<h1 align="center">Kota</h1>
 
-## Sağlayıcılar
+<p align="center"><b>Your AI usage limits, right on the Windows taskbar.</b><br>
+Claude · Codex · Antigravity — one glance, no browser tabs.</p>
 
-| Sağlayıcı | Kaynak | Not |
+<p align="center"><img src="docs/pill.png" alt="Kota on the taskbar"></p>
+
+*Kota* is Turkish for *quota*. It sits next to the Start button and shows how much of your 5-hour
+(or weekly) limits you have used, with a marker for how much of the window has passed — so you can
+tell at a glance whether you're burning through it faster than the clock.
+
+<p align="center"><img src="docs/panel.png" width="360" alt="Kota panel"></p>
+
+## Features
+
+- **Taskbar pill** — up to two providers, their 5-hour limit (or the most-used one), reset countdown.
+- **Pace marker** — the thin line on each bar is how much of the window has elapsed. Past the line
+  means you're ahead of the clock; the panel warns *"At this pace: limit reached in 1h 22m"*.
+- **Panel** (click the pill) — every limit of every provider, token totals for the last 5 h / 7 days,
+  and a **7-day usage chart**.
+- **Notifications** — at a warning and a critical threshold (80 % / 95 % by default, adjustable),
+  and when a used-up limit is available again. Held back during fullscreen, games and presentations.
+- **Follow the tool you're using** (optional) — the pill shows Claude first while you're in Claude
+  Code, Codex while you're in Codex, … including CLIs running inside terminals and editors.
+- **All monitors** (optional) — a pill on every taskbar.
+- Light / dark theme, drag to reposition, right-click menu, hover tooltip, start with Windows.
+- Adaptive refresh: every 2 min while you're active, 15 min when idle, right after a limit resets.
+- Small: one ~15 MB exe, no runtime to install (WebView2 ships with Windows 11).
+
+## Install
+
+1. Download **Kota.exe** from the [latest release](../../releases/latest).
+2. Run it. It offers to install for your user (no admin rights): `%LOCALAPPDATA%\Programs\Kota`,
+   a Start menu entry, and an entry in *Settings → Apps* to uninstall. Choose *No* to run it portable.
+3. To update, run a newer Kota.exe and choose *Yes* — your settings are kept.
+
+Windows SmartScreen may warn because the exe isn't code-signed: *More info → Run anyway*.
+
+### What it needs
+
+Sign in to the tools you use; Kota reads their existing local sign-in, nothing else:
+
+| Provider | Where the data comes from |
+|---|---|
+| **Claude** | Claude Code's sign-in (`~/.claude/.credentials.json`, run `claude` → `/login`). Plan limits from Anthropic's usage endpoint; token totals from local Claude Code logs. |
+| **Codex** | The Codex app / CLI sign-in (`~/.codex/auth.json`, read-only). Limits from ChatGPT's usage endpoint; tokens from local session logs. |
+| **Antigravity** | The running Antigravity app (local language server), or the `agy` CLI when the app is closed. |
+
+Providers that aren't installed are simply hidden.
+
+## Privacy
+
+- Your tokens are only ever sent to the service they belong to (Anthropic, OpenAI, Google).
+  No analytics, no telemetry, no servers of ours.
+- Kota never writes to Codex's credentials. For Claude, an expired access token is refreshed the
+  same way Claude Code does it and written back with every other field preserved.
+- Settings, caches and the 7-day history live in `%APPDATA%\Kota`.
+
+> The usage endpoints Kota uses are not officially documented and may change with tool updates.
+> Kota is an independent project, not affiliated with or endorsed by Anthropic, OpenAI or Google;
+> product names and logos are trademarks of their respective owners.
+
+## How it works
+
+Windows 11 has no API for third-party taskbar widgets (the weather widget is part of Explorer), so:
+
+| Part | File | Approach |
 |---|---|---|
-| Claude | `~/.claude/.credentials.json` token → `api.anthropic.com/api/oauth/usage` (5 saatlik + haftalık %) | Token yoksa `~/.claude/projects/**/*.jsonl` loglarından token toplamı gösterir. Limit % için terminalde `claude` → `/login`. |
-| Codex | `~/.codex/auth.json` token (sadece okunur) → `chatgpt.com/backend-api/wham/usage` | Pencere uzunluğuna göre etiket (5-hour / Weekly / Monthly). Token'ı Codex uygulaması yeniler; `~/.codex` yoksa kart gizlenir. |
-| Antigravity | Çalışan `language_server.exe` → `GetUserStatus` (127.0.0.1) | Antigravity açık olmalı. Aynı kotayı paylaşan modeller gruplanır. |
+| Pill | `pill_windows.go` | A GDI-drawn native window, child of `Shell_TrayWnd`. It must be `WS_EX_LAYERED` (the Win11 taskbar is DirectComposition; a plain GDI child is invisible). |
+| Position | `uia_windows.go` | Finds the Start button with UI Automation (on its own thread — calling it from the pill's thread deadlocks with Explorer) and follows taskbar changes via `SetWinEventHook`. |
+| Explorer restarts | `pill_windows.go` | Re-created on the `TaskbarCreated` broadcast. |
+| Panel | `panel_windows.go` | The Wails (WebView2) window, a plain top-most popup shown above the pill. |
+| Data | `app.go`, `refresh.go`, `providers/` | Fetches all providers in parallel on an adaptive schedule. |
+| Multiple monitors | `pills_windows.go` | One pill per `Shell_SecondaryTrayWnd`. |
+| Installer | `install_windows.go` | The exe copies itself, creates the shortcut with `IShellLink` and an uninstall entry. |
+| History | `history.go` | Samples each limit at most every 10 min (sooner if it moves), kept 7 days. |
 
-İkisi de resmi olmayan endpoint'ler; güncellemeyle bozulabilir. Token'lar sadece kendi servislerine gider.
+## Build
 
-## Görünüm
-
-- **Taskbar pill**: Başlat düğmesinin hemen solunda, her sağlayıcının 5 saatlik limitini (yoksa en çok kullanılan limiti) gösterir.
-- **Tıkla → panel**: tüm limitler + token detayları. Pill'e tekrar tıklayınca, dışarı tıklayınca, Esc ile ya da odak kaybında kapanır.
-- **Ayarlar (⚙ panelde)**: taskbar'da görünecek sağlayıcılar (en fazla 2), taskbar genişliği (180–320 px; 260+ isimleri de gösterir) ve limitlerin "Used" ya da "Remaining" gösterimi. `%APPDATA%\AIUsageWidget\config.json`'a kaydedilir.
-
-- **Hız işareti**: barlardaki ince çizgi pencerenin zamanının ne kadarının geçtiğini gösterir; kullanım çizgiyi geçtiyse saatten hızlı harcıyorsun. Bu hızla sıfırlanmadan önce limit dolacaksa panelde "At this pace: limit reached in …" uyarısı çıkar.
-- **Bildirimler**: limit uyarı (varsayılan %80) ve kritik (varsayılan %95) eşiğine gelince (pencere başına bir kez) ve dolmuş bir limit yeniden kullanılabilir olunca Windows bildirimi. Eşikler ayarlardan değişir, kapatılabilir; ek istek atmaz. Tam ekran / sunum / oyun sırasında bekletilir, bitince gösterilir.
-- **Tooltip ve sağ tık**: pill'in üstünde durunca tüm limitler tooltip'te; sağ tık menüsü: Open panel, Refresh now, Settings…, Reset position, Quit.
-- **Açık/koyu tema**: pill ve panel Windows'un taskbar temasını izler (test için `AIW_THEME=light|dark`).
-- **Uyarlanır yenileme**: aktifken 2 dk, 10 dk'dan uzun boştayken 15 dk; bir limit sıfırlanınca 30 sn sonra, panel açılınca veri 1 dk'dan eskiyse ve boştan dönünce hemen.
-- **Kullandığım aracı öne al** (ayar): öndeki uygulama Claude / Codex / Antigravity ise (terminal ve editör içindeki CLI'lar dahil) pill'de o sağlayıcı önce gösterilir.
-- **Kullanım geçmişi**: kart açılınca son 7 günün grafiği (pill'deki limit + en uzun limit), üstüne gelince o anki değerler. Çekilen veriden örneklenir (`history.json`), ek istek atmaz.
-- **Tüm monitörlerde göster** (ayar): her ikincil taskbar'a (`Shell_SecondaryTrayWnd`) da bir pill; panel tıklanan pill'in monitöründe açılır.
-
-## Nasıl çalışıyor
-
-Windows 11'de üçüncü parti taskbar widget API'si yok (hava durumu widget'ı Explorer'ın kendi parçası). Bu yüzden:
-
-| Parça | Dosya | Yaklaşım |
-|---|---|---|
-| Pill | `pill_windows.go` | GDI ile çizilen native pencere, `Shell_TrayWnd`'nin child'ı. `WS_EX_LAYERED` olmalı (Win11 taskbar DirectComposition tabanlı, düz GDI child görünmez). Native pencere olduğu için tıklama/hover doğrudan gelir. |
-| Konum | `uia_windows.go`, `pill_windows.go` | Başlat'ın yeri UI Automation (COM) ile bulunur; taskbar'daki değişiklikler `SetWinEventHook` ile anında yakalanır, 5 sn'lik yedek zamanlayıcı da var. UIA çağrısı pencere thread'inde yapılmaz (Explorer ile karşılıklı beklemeye giriyordu). |
-| Explorer yeniden başlarsa | `pill_windows.go` | Explorer'ın yayınladığı `TaskbarCreated` mesajıyla pill yeniden oluşturulur. |
-| Panel | `panel_windows.go` | Wails penceresi, normal topmost popup; göster/gizle. Hiç re-parent edilmez. |
-| Veri | `app.go`, `refresh.go` | Uyarlanır aralıkla çeker, pill'i günceller ve panele `usage` event'i yollar. |
-| Pill içeriği | `pill_model.go` | Hangi limitin gösterileceği, renk, sıfırlanma metni (test: `pill_model_test.go`). |
-| Çoklu monitör | `pills_windows.go` | Ana pill + ikincil taskbar başına bir pill; 3 sn'de bir eşitlenir. |
-| Kurulum | `install_windows.go` | Exe kendini `%LOCALAPPDATA%\Programs\AIUsageWidget`'a kopyalar, Başlat menüsü kısayolu (IShellLink) ve Ayarlar → Uygulamalar kaydı ekler; yönetici izni yok. Yeni exe çalıştırılınca günceller. `--uninstall`, `--portable`. |
-| Geçmiş | `history.go` | Limit başına 10 dk'da bir (değer ≥1 puan değişirse hemen) örnek, 7 gün saklanır. |
-| Aktif araç | `active_windows.go` | Öndeki pencerenin exe'si; terminal/editörse süreç ağacında CLI aranır. |
-| Claude token | `providers/claude.go` | Süresi dolunca yenilenir ve dosyaya geri yazılır (diğer alanlar aynen korunur). Claude Code aynı anda yenilediyse dosyadaki yeni token kullanılır. |
-
-## Dağıtım
+Requires Go 1.26+ and the [Wails v2 CLI](https://wails.io/docs/gettingstarted/installation).
 
 ```bash
-wails build -clean -skipbindings -trimpath
+wails build -clean -skipbindings -trimpath   # build/bin/Kota.exe
+go test ./...
+go run ./cmd/probe                           # provider output as JSON, no UI
 ```
 
-`build/bin/AIUsageWidget.exe` tek dosyadır; `packaging/KURULUM.txt` ile birlikte zip'lenip paylaşılabilir (`release/AIUsageWidget-win64.zip`). İlk çalıştırmada kurulum sorar. Sürüm: `install_windows.go` içindeki `appVersion` ve `wails.json`.
+Run a dev build with `--portable` to skip the install prompt. The icon is generated from
+`build/logo.svg`'s geometry by `build/makeicon.ps1`.
 
-## Geliştirme
+Adding a provider: implement the `Provider` interface in `providers/` and register it in `providers.All()`.
 
-```bash
-go run ./cmd/probe          # UI olmadan sağlayıcı çıktısı (JSON)
-wails build -skipbindings   # build/bin/AIUsageWidget.exe
-```
+## License
 
-Yeni sağlayıcı: `providers/` altında `Provider` arayüzünü uygula, `providers.All()`'a ekle.
+[MIT](LICENSE)
