@@ -17,6 +17,7 @@ const (
 	repaintEvery  = 30 * time.Second // keep reset countdowns on the pill fresh
 	eventUsage    = "usage"          // Go → UI: new provider data
 	eventShown    = "panel:shown"    // Go → UI: panel became visible
+	eventSettings = "panel:settings" // Go → UI: show the settings view
 	fetchDeadline = 30 * time.Second
 )
 
@@ -55,7 +56,25 @@ func (a *App) startup(ctx context.Context) {
 			a.cfgMu.Unlock()
 		})
 	theToaster.onClick = func() { a.panel.show(a.pill.screenRect()) } // click on a notification
+	a.pill.onMenu = a.onPillMenu
 	go a.refreshLoop()
+}
+
+// onPillMenu handles the pill's right-click menu.
+func (a *App) onPillMenu(cmd int) {
+	switch cmd {
+	case MenuOpen:
+		a.panel.show(a.pill.screenRect())
+	case MenuRefresh:
+		a.fetch()
+	case MenuSettings:
+		a.panel.show(a.pill.screenRect())
+		runtime.EventsEmit(a.ctx, eventSettings)
+	case MenuResetPosition:
+		a.ResetPillPosition()
+	case MenuQuit:
+		a.Quit()
+	}
 }
 
 func (a *App) domReady(ctx context.Context) { go a.panel.attach(windowTitle) }

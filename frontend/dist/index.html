@@ -483,6 +483,7 @@ async function boot() {
   if (!api() || !(window.runtime && window.runtime.EventsOn)) return setTimeout(boot, 50);
   window.runtime.EventsOn('usage', gotData);
   window.runtime.EventsOn('panel:shown', () => { shownAt = Date.now(); tickAgo(); });
+  window.runtime.EventsOn('panel:settings', () => { shownAt = Date.now(); showSettings(true); });
   try { settings = await api().GetSettings(); } catch {}
   try { gotData(await api().GetUsage()); } catch {}
 }

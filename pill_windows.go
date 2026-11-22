@@ -77,6 +77,7 @@ type pill struct {
 
 	onClick func(screen rect)               // called on its own goroutine
 	onMoved func(anchor string, offset int) // after a drag; own goroutine
+	onMenu  func(cmd int)                   // right-click menu choice; own goroutine
 	logos   map[string][]byte               // provider id → PNG
 	icons   map[iconKey]uintptr
 }
@@ -230,7 +231,10 @@ func (p *pill) createPill(inst uintptr, class *uint16) {
 	p.mu.Lock()
 	p.hwnd, p.tb, p.hook = h, tb, hook
 	p.screen = rect{} // new window: force the first layout to size/move it
+	rows, host := p.rows, p.host
 	p.mu.Unlock()
+	attachTooltip(host, h, inst)
+	updateTooltip(rows)
 	p.lookupStart()
 	p.layout()
 	pShowWindow.Call(h, swShowNoActive)
@@ -353,6 +357,10 @@ func hostProc(hwnd, m, wp, lp uintptr) uintptr {
 		return 0
 	case m == msgRepaint:
 		p.repaint()
+		p.mu.Lock()
+		rows := p.rows
+		p.mu.Unlock()
+		updateTooltip(rows)
 		return 0
 	case m == wmTimer && wp == timerRelayout:
 		pKillTimer.Call(hwnd, timerRelayout)
@@ -534,6 +542,14 @@ func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 		p.hover = false
 		p.mu.Unlock()
 		pInvalidateRect.Call(hwnd, 0, 0)
+		return 0
+	case wmRButtonUp:
+		p.mu.Lock()
+		host := p.host
+		p.mu.Unlock()
+		if cmd := showPillMenu(host); cmd != 0 && p.onMenu != nil {
+			go p.onMenu(cmd)
+		}
 		return 0
 	case wmLButtonUp:
 		p.mu.Lock()
