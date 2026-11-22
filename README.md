@@ -54,6 +54,8 @@ Providers that aren't installed are simply hidden.
 
 - Your tokens are only ever sent to the service they belong to (Anthropic, OpenAI, Google).
   No analytics, no telemetry, no servers of ours.
+- Once a day Kota asks GitHub (`api.github.com`) whether a newer release exists, and shows a link
+  if so. Nothing is downloaded automatically; you can turn the check off in settings.
 - Kota never writes to Codex's credentials. For Claude, an expired access token is refreshed the
   same way Claude Code does it and written back with every other field preserved.
 - Settings, caches and the 7-day history live in `%APPDATA%\Kota`.

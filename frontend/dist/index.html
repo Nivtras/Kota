@@ -184,6 +184,12 @@
   .hist-tip .t { color: var(--muted); margin-bottom: 1px; }
   .hist-tip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
   .hist-tip b { font-variant-numeric: tabular-nums; margin-left: 6px; }
+  .update {
+    display: block; width: 100%; border: 0; border-bottom: 1px solid var(--line); cursor: pointer;
+    background: var(--hover); color: var(--accent); font: inherit; font-size: 12px; padding: 7px 14px; text-align: left;
+  }
+  .update:hover { background: var(--strong); }
+  .update[hidden] { display: none; }
   .note { color: var(--muted); font-size: 11px; margin-top: 4px; }
   .err { color: var(--bad); font-size: 11px; margin-top: 2px; }
   .empty { color: var(--muted); text-align: center; padding: 28px 0; }
@@ -207,6 +213,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
   </header>
+  <button class="update" id="update" hidden></button>
   <main id="list"><div class="empty">Loading…</div></main>
   <main id="settings" hidden>
     <section class="card">
@@ -235,6 +242,10 @@
       <label class="choice">
         <input type="checkbox" id="autostart">
         <span>Start with Windows</span>
+      </label>
+      <label class="choice">
+        <input type="checkbox" id="updateCheck">
+        <span>Check for new versions (GitHub, once a day)</span>
       </label>
       <label class="choice">
         <input type="checkbox" id="notify">
@@ -539,6 +550,7 @@ function renderSettings() {
   $('notify').checked = settings.notify !== false;
   $('follow').checked = !!settings.follow;
   $('multi').checked = !!settings.multi;
+  $('updateCheck').checked = settings.update !== false;
   fillLevels();
 }
 // Notification thresholds: warn 50–95, critical above warn up to 100.
@@ -560,6 +572,17 @@ async function saveLevels() {
 }
 $('warnAt').addEventListener('change', saveLevels);
 $('critAt').addEventListener('change', saveLevels);
+$('updateCheck').addEventListener('change', (e) => {
+  settings.update = e.target.checked;
+  api().SetUpdateCheck(settings.update);
+});
+// A newer release: one line under the header, opens its GitHub page.
+function showUpdate(u) {
+  const b = $('update');
+  b.hidden = !u;
+  if (u) b.textContent = `Kota ${u.version} is available — view release`;
+}
+$('update').onclick = () => api().OpenUpdate();
 $('multi').addEventListener('change', (e) => {
   settings.multi = e.target.checked;
   api().SetAllMonitors(settings.multi);
@@ -672,6 +695,8 @@ $('close').onclick = () => api().Quit();
 async function boot() {
   if (!api() || !(window.runtime && window.runtime.EventsOn)) return setTimeout(boot, 50);
   window.runtime.EventsOn('usage', gotData);
+  window.runtime.EventsOn('update', showUpdate);
+  api().GetUpdate().then(showUpdate).catch(() => {});
   window.runtime.EventsOn('panel:shown', () => { shownAt = Date.now(); tickAgo(); });
   window.runtime.EventsOn('panel:settings', () => { shownAt = Date.now(); showSettings(true); });
   try { settings = await api().GetSettings(); } catch {}

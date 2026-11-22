@@ -18,6 +18,7 @@ const (
 	eventUsage    = "usage"          // Go → UI: new provider data
 	eventShown    = "panel:shown"    // Go → UI: panel became visible
 	eventSettings = "panel:settings" // Go → UI: show the settings view
+	eventUpdate   = "update"         // Go → UI: a newer release (or null)
 	fetchDeadline = 30 * time.Second
 )
 
@@ -36,7 +37,8 @@ type App struct {
 
 	notifier *notifier
 	hist     *history
-	active   string // provider of the AI tool in use (follow mode); guarded by cfgMu
+	update   *UpdateInfo // newer release, if any; guarded by dataMu
+	active   string      // provider of the AI tool in use (follow mode); guarded by cfgMu
 }
 
 func NewApp() *App {
@@ -71,6 +73,7 @@ func (a *App) startup(ctx context.Context) {
 	a.pill = newPillSet(primary, a.cfg.AllMonitors)
 	theToaster.onClick = func() { a.panel.show(a.pill.screenRect()) } // click on a notification
 	go a.refreshLoop()
+	go a.updateLoop()
 	go watchActiveTool(
 		func() bool { a.cfgMu.Lock(); defer a.cfgMu.Unlock(); return a.cfg.FollowActive },
 		func(id string) {
@@ -278,6 +281,41 @@ func (a *App) GetUsage() []providers.Usage {
 	return a.fetch()
 }
 
+// GetUpdate returns a newer release, or nil.
+func (a *App) GetUpdate() *UpdateInfo {
+	a.dataMu.Lock()
+	defer a.dataMu.Unlock()
+	return a.update
+}
+
+func (a *App) emitUpdate() {
+	if a.ctx != nil {
+		runtime.EventsEmit(a.ctx, eventUpdate, a.GetUpdate())
+	}
+}
+
+// OpenUpdate opens the newer release's page in the browser.
+func (a *App) OpenUpdate() {
+	if u := a.GetUpdate(); u != nil && a.ctx != nil {
+		runtime.BrowserOpenURL(a.ctx, u.URL)
+		a.panel.hide()
+	}
+}
+
+// SetUpdateCheck turns the daily release check on or off.
+func (a *App) SetUpdateCheck(on bool) {
+	a.cfgMu.Lock()
+	a.cfg.UpdateCheckOff = !on
+	saveConfig(a.cfg)
+	a.cfgMu.Unlock()
+	if !on {
+		a.dataMu.Lock()
+		a.update = nil
+		a.dataMu.Unlock()
+		a.emitUpdate()
+	}
+}
+
 // GetHistory returns the last 7 days of the charted limits per provider.
 func (a *App) GetHistory() []ProviderHistory {
 	return a.hist.forProviders(a.snapshot(), time.Now())
@@ -333,6 +371,7 @@ type Settings struct {
 	Notify    bool     `json:"notify"`    // read-only here; changed via SetNotifications
 	Follow    bool     `json:"follow"`    // show the tool in use first; changed via SetFollowActive
 	Multi     bool     `json:"multi"`     // pill on every monitor's taskbar; changed via SetAllMonitors
+	Update    bool     `json:"update"`    // daily release check; changed via SetUpdateCheck
 	Warn      int      `json:"warn"`      // notification thresholds; changed via SetNotifyLevels
 	Critical  int      `json:"critical"`
 
@@ -347,6 +386,7 @@ func (a *App) GetSettings() Settings {
 		Notify:    !a.cfg.NotifyOff,
 		Follow:    a.cfg.FollowActive,
 		Multi:     a.cfg.AllMonitors,
+		Update:    !a.cfg.UpdateCheckOff,
 	}
 	s.Warn, s.Critical = normLevels(a.cfg.NotifyWarn, a.cfg.NotifyCrit)
 	if s.Display != "remaining" {
