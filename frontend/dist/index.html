@@ -111,7 +111,11 @@
     padding: 4px 0;
   }
   .row .label { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .track { height: 5px; background: var(--track); border-radius: 3px; overflow: hidden; }
+  .track { position: relative; height: 5px; background: var(--track); border-radius: 3px; overflow: visible; }
+  .track .fill { position: absolute; left: 0; top: 0; }
+  /* pace marker: share of the window's time that has passed */
+  .marker { position: absolute; top: -3px; width: 2px; height: 11px; margin-left: -1px; background: #d2d2d8; border-radius: 1px; }
+  .pace-warn { color: var(--warn); font-size: 11px; margin: -2px 0 4px 120px; }
   .fill { height: 100%; border-radius: 3px; transition: width .4s ease; }
   .reset { color: var(--muted); font-size: 11px; text-align: right; white-space: nowrap; }
   .pct { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -171,6 +175,11 @@
         <input type="checkbox" id="autostart">
         <span>Start with Windows</span>
       </label>
+      <label class="choice">
+        <input type="checkbox" id="notify">
+        <span>Notify at 80% / 95% and when a limit is available again</span>
+      </label>
+      <button class="link-btn" id="testNotify" style="margin:4px 0 0 26px">Send a test notification</button>
     </section>
     <section class="card">
       <div class="s-title">Show limits as</div>
@@ -259,15 +268,44 @@ function taskbarItems(items) {
 }
 
 /* ---------- panel ---------- */
+// Pace: how much of the window's time has elapsed and whether the current
+// burn rate reaches 100% before the reset (same rules as pill_model.go).
+const MIN_PACE_USED = 20;
+function pace(b) {
+  const reset = Date.parse(b.resetsAt || ''), win = (b.windowSec || 0) * 1000, now = Date.now();
+  if (isNaN(reset) || win <= 0 || reset <= now) return null;
+  const left = Math.min(reset - now, win), elapsed = win - left;
+  const out = { elapsedPct: 100 * elapsed / win, runsOutIn: 0 };
+  const used = clampPct(b.usedPct);
+  if (used >= MIN_PACE_USED && used < 100 && elapsed > 0) {
+    const toLimit = (100 - used) / (used / elapsed);
+    if (toLimit < left) out.runsOutIn = toLimit;
+  }
+  return out;
+}
+function durShort(ms) {
+  const m = Math.round(ms / 60000);
+  if (m < 1) return '<1m';
+  if (m < 60) return m + 'm';
+  if (m < 1440) return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+  return Math.floor(m / 1440) + 'd ' + Math.floor((m % 1440) / 60) + 'h';
+}
 function barRow(b) {
   const p = shown(b.usedPct);
-  const tip = [b.tooltip, resetLong(b.resetsAt)].filter(Boolean).join('\n');
+  const pc = pace(b);
+  const marker = pc ? (settings.display === 'remaining' ? 100 - pc.elapsedPct : pc.elapsedPct) : -1;
+  const tip = [b.tooltip, resetLong(b.resetsAt),
+    pc ? `${Math.round(pc.elapsedPct)}% of the window has passed` : ''].filter(Boolean).join('\n');
   return `<div class="row" title="${esc(tip)}">
     <span class="label">${esc(b.label)}</span>
-    <div class="track"><div class="fill" style="width:${p.value}%;background:${color(p.used)}"></div></div>
+    <div class="track">
+      <div class="fill" style="width:${p.value}%;background:${color(p.used)}"></div>
+      ${marker >= 0 ? `<div class="marker" style="left:${marker}%"></div>` : ''}
+    </div>
     <span class="reset">${esc(resetShort(b.resetsAt))}</span>
     <span class="pct">${pctHTML(p)}</span>
-  </div>`;
+  </div>
+  ${pc && pc.runsOutIn ? `<div class="pace-warn">At this pace: limit reached in ${durShort(pc.runsOutIn)}</div>` : ''}`;
 }
 // Token dropdown: one block per time window, side by side.
 function tokenBlocks(tw) {
@@ -347,7 +385,13 @@ function renderSettings() {
   if (document.activeElement !== s) s.value = settings.width;
   $('widthVal').textContent = settings.width + ' px';
   $('autostart').checked = !!settings.autostart;
+  $('notify').checked = settings.notify !== false;
 }
+$('notify').addEventListener('change', (e) => {
+  settings.notify = e.target.checked;
+  api().SetNotifications(settings.notify);
+});
+$('testNotify').onclick = () => api().TestNotification();
 $('resetPos').onclick = () => api().ResetPillPosition();
 $('autostart').addEventListener('change', async (e) => {
   settings.autostart = await api().SetAutostart(e.target.checked);

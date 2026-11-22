@@ -313,11 +313,15 @@ func fetchClaudeLimits(ctx context.Context, token string) ([]Bar, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, err
 	}
-	order := []struct{ key, label string }{
-		{"five_hour", "5-hour limit"},
-		{"seven_day", "Weekly · all models"},
-		{"seven_day_opus", "Weekly · Opus"},
-		{"seven_day_sonnet", "Weekly · Sonnet"},
+	const fiveHours, week = 5 * 3600, 7 * 24 * 3600
+	order := []struct {
+		key, label string
+		window     int64
+	}{
+		{"five_hour", "5-hour limit", fiveHours},
+		{"seven_day", "Weekly · all models", week},
+		{"seven_day_opus", "Weekly · Opus", week},
+		{"seven_day_sonnet", "Weekly · Sonnet", week},
 	}
 	var bars []Bar
 	for _, w := range order {
@@ -325,7 +329,7 @@ func fetchClaudeLimits(ctx context.Context, token string) ([]Bar, error) {
 		if json.Unmarshal(data[w.key], &cw) != nil || cw.Utilization == nil {
 			continue
 		}
-		b := Bar{Label: w.label, UsedPct: clamp(*cw.Utilization)}
+		b := Bar{Label: w.label, UsedPct: clamp(*cw.Utilization), WindowSec: w.window}
 		if cw.ResetsAt != nil {
 			b.ResetsAt = *cw.ResetsAt
 		}

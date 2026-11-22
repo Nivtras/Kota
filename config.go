@@ -12,6 +12,7 @@ type config struct {
 	PillOffset   *int     `json:"pillOffset,omitempty"`   // logical px from the anchor to the pill's right edge
 	Taskbar      []string `json:"taskbar,omitempty"`      // provider IDs on the taskbar pill
 	Display      string   `json:"display,omitempty"`      // "used" (default) | "remaining"
+	NotifyOff    bool     `json:"notifyOff,omitempty"`    // usage notifications disabled
 }
 
 func configPath() string {

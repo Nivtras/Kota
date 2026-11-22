@@ -348,6 +348,9 @@ func hostProc(hwnd, m, wp, lp uintptr) uintptr {
 		p.layout()
 		p.repaint()
 		return 0
+	case m == msgTray:
+		theToaster.trayMessage(lp)
+		return 0
 	case m == msgRepaint:
 		p.repaint()
 		return 0
@@ -570,6 +573,7 @@ var (
 	colTrack    = rgb{54, 54, 58}
 	colText     = rgb{236, 236, 239}
 	colMuted    = rgb{142, 142, 150}
+	colMarker   = rgb{210, 210, 216}
 )
 
 func (p *pill) paint(hwnd uintptr) {
@@ -651,6 +655,11 @@ func (p *pill) paint(hwnd uintptr) {
 			if fw := int32(float64(barR-x) * r.Fill / 100); fw > 0 {
 				fillRound(mdc, rect{x, ty, x + max(fw, th), ty + th}, r.Color, r.Color, th)
 			}
+			// Pace marker: how much of the window's time has passed.
+			if r.Marker >= 0 {
+				mx := x + int32(float64(barR-x-px(2))*r.Marker/100)
+				fillRect(mdc, rect{mx, ty - px(3), mx + max(px(2), 1), ty + th + px(3)}, colMarker)
+			}
 		}
 		drawText(mdc, fSmall, colMuted, r.Reset, rect{resetR - resetW, y, resetR, y + rowH}, dtRight)
 		// "40%" bold + " used" small, right-aligned together.
@@ -696,6 +705,12 @@ func textWidth(dc, font uintptr, s string) int32 {
 	var sz struct{ CX, CY int32 }
 	pGetTextExtentPoint32W.Call(dc, uintptr(unsafe.Pointer(u)), uintptr(n), uintptr(unsafe.Pointer(&sz)))
 	return sz.CX
+}
+
+func fillRect(dc uintptr, r rect, c rgb) {
+	brush, _, _ := pCreateSolidBrush.Call(colorRef(c))
+	pFillRect.Call(dc, uintptr(unsafe.Pointer(&r)), brush)
+	pDeleteObject.Call(brush)
 }
 
 func fillRound(dc uintptr, r rect, fill, line rgb, radius int32) {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -29,9 +30,14 @@ type App struct {
 	dataMu   sync.Mutex
 	last     []providers.Usage
 	fetching chan struct{} // non-nil while a fetch runs; closed when done
+
+	notifier *notifier
 }
 
-func NewApp() *App { return &App{cfg: loadConfig(), panel: &panel{}} }
+func NewApp() *App {
+	path := filepath.Join(filepath.Dir(configPath()), "notify-state.json")
+	return &App{cfg: loadConfig(), panel: &panel{}, notifier: newNotifier(path)}
+}
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
@@ -48,6 +54,7 @@ func (a *App) startup(ctx context.Context) {
 			saveConfig(a.cfg)
 			a.cfgMu.Unlock()
 		})
+	theToaster.onClick = func() { a.panel.show(a.pill.screenRect()) } // click on a notification
 	go a.refreshLoop()
 }
 
@@ -104,7 +111,31 @@ func (a *App) fetch() []providers.Usage {
 	if a.ctx != nil {
 		runtime.EventsEmit(a.ctx, eventUsage, out)
 	}
+	// Alerts are computed every fetch (so state stays current) but only shown
+	// when notifications are on.
+	alerts := a.notifier.check(out, time.Now())
+	a.cfgMu.Lock()
+	off := a.cfg.NotifyOff
+	a.cfgMu.Unlock()
+	if !off {
+		for _, al := range alerts {
+			notifyUser(al.Title, al.Body)
+		}
+	}
 	return out
+}
+
+// SetNotifications turns usage notifications on or off.
+func (a *App) SetNotifications(on bool) {
+	a.cfgMu.Lock()
+	a.cfg.NotifyOff = !on
+	saveConfig(a.cfg)
+	a.cfgMu.Unlock()
+}
+
+// TestNotification shows a sample notification (settings button).
+func (a *App) TestNotification() {
+	notifyUser("AI Usage notifications are on", "You'll be told at 80% and 95% of a limit, and when it's available again.")
 }
 
 func (a *App) snapshot() []providers.Usage {
@@ -176,6 +207,7 @@ type Settings struct {
 	MinWidth  int      `json:"minWidth"` // slider bounds (read-only)
 	MaxWidth  int      `json:"maxWidth"`
 	Autostart bool     `json:"autostart"` // read-only here; changed via SetAutostart
+	Notify    bool     `json:"notify"`    // read-only here; changed via SetNotifications
 }
 
 func (a *App) GetSettings() Settings {
@@ -183,6 +215,7 @@ func (a *App) GetSettings() Settings {
 		Taskbar: a.cfg.Taskbar, Display: a.cfg.Display,
 		Width: clampWidth(a.cfg.CompactWidth), MinWidth: minCompactW, MaxWidth: maxCompactW,
 		Autostart: autostartEnabled(),
+		Notify:    !a.cfg.NotifyOff,
 	}
 	if s.Display != "remaining" {
 		s.Display = "used"

@@ -10,7 +10,10 @@ type Bar struct {
 	Label    string  `json:"label"`
 	UsedPct  float64 `json:"usedPct"` // 0..100
 	ResetsAt string  `json:"resetsAt,omitempty"`
-	Tooltip  string  `json:"tooltip,omitempty"`
+	// WindowSec is the length of the limit window (e.g. 18000 for 5 hours);
+	// with ResetsAt it tells how much of the window has elapsed (pace).
+	WindowSec int64  `json:"windowSec,omitempty"`
+	Tooltip   string `json:"tooltip,omitempty"`
 }
 
 // Group is a set of bars sharing one quota pool (e.g. "Gemini Models").

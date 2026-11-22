@@ -140,10 +140,11 @@ func (a *Antigravity) Fetch(ctx context.Context) Usage {
 				reset = "" // untouched window: reset time is meaningless
 			}
 			grp.Bars = append(grp.Bars, Bar{
-				Label:    bucketLabel(b.Window, b.DisplayName),
-				UsedPct:  used,
-				ResetsAt: reset,
-				Tooltip:  b.Description,
+				Label:     bucketLabel(b.Window, b.DisplayName),
+				UsedPct:   used,
+				ResetsAt:  reset,
+				WindowSec: bucketWindowSec(b.Window),
+				Tooltip:   b.Description,
 			})
 		}
 		if len(grp.Bars) > 0 {
@@ -248,6 +249,16 @@ func fromCLI(ctx context.Context) (*agQuotaSummary, error) {
 		qs.Response.Groups = append(qs.Response.Groups, grp)
 	}
 	return &qs, nil
+}
+
+func bucketWindowSec(window string) int64 {
+	switch window {
+	case "weekly":
+		return 7 * 24 * 3600
+	case "5h":
+		return 5 * 3600
+	}
+	return 0
 }
 
 func bucketLabel(window, name string) string {

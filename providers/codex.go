@@ -233,7 +233,7 @@ func codexGroups(d *codexUsage) []Group {
 			if w == nil || w.UsedPercent == nil {
 				continue
 			}
-			b := Bar{Label: windowLabel(w.LimitWindowSeconds), UsedPct: clamp(*w.UsedPercent)}
+			b := Bar{Label: windowLabel(w.LimitWindowSeconds), UsedPct: clamp(*w.UsedPercent), WindowSec: w.LimitWindowSeconds}
 			if w.ResetAt > 0 && *w.UsedPercent > 0 {
 				b.ResetsAt = time.Unix(w.ResetAt, 0).UTC().Format(time.RFC3339)
 			}

@@ -32,6 +32,57 @@ type pillRow struct {
 	Color    rgb     // by usage, so red always means "near the limit"
 	Reset    string  // short reset text ("2h 14m", "Sun 11:00")
 	Tooltip  string
+	// Pace marker position on the bar (0..100, same orientation as Fill),
+	// or -1 when the window length or reset time is unknown.
+	Marker float64
+}
+
+// paceInfo: how much of a limit window has elapsed, and whether the
+// current burn rate reaches 100% before the window resets.
+type paceInfo struct {
+	ElapsedPct float64       // 0..100
+	OK         bool          // window length and reset known
+	RunsOut    bool          // at this pace the limit is hit before reset
+	RunsOutIn  time.Duration // from now, when RunsOut
+}
+
+// minPaceUsed: below this usage a forecast is mostly noise.
+const minPaceUsed = 20
+
+func barPace(b providers.Bar, now time.Time) paceInfo {
+	reset, err := time.Parse(time.RFC3339, b.ResetsAt)
+	if err != nil || b.WindowSec <= 0 || !reset.After(now) {
+		return paceInfo{}
+	}
+	window := time.Duration(b.WindowSec) * time.Second
+	left := reset.Sub(now)
+	if left > window {
+		left = window
+	}
+	elapsed := window - left
+	pi := paceInfo{ElapsedPct: 100 * float64(elapsed) / float64(window), OK: true}
+	if b.UsedPct >= minPaceUsed && b.UsedPct < 100 && elapsed > 0 {
+		perSec := b.UsedPct / elapsed.Seconds()
+		toLimit := time.Duration((100 - b.UsedPct) / perSec * float64(time.Second))
+		if toLimit < left {
+			pi.RunsOut, pi.RunsOutIn = true, toLimit
+		}
+	}
+	return pi
+}
+
+// shortDuration: "45m", "2h 10m", "3d 4h".
+func shortDuration(d time.Duration) string {
+	m := int(math.Round(d.Minutes()))
+	switch {
+	case m < 1:
+		return "<1m"
+	case m < 60:
+		return fmt.Sprintf("%dm", m)
+	case m < 24*60:
+		return fmt.Sprintf("%dh %dm", m/60, m%60)
+	}
+	return fmt.Sprintf("%dd %dh", m/(24*60), (m%(24*60))/60)
 }
 
 var (
@@ -164,10 +215,21 @@ func buildPillRows(items []providers.Usage, s Settings, now time.Time) []pillRow
 		}
 		r.Value = int(math.Floor(r.Fill))
 		r.Reset = resetShort(b.ResetsAt, now)
+		r.Marker = -1
+		pace := barPace(b.Bar, now)
+		if pace.OK {
+			r.Marker = pace.ElapsedPct
+			if s.Display == "remaining" {
+				r.Marker = 100 - pace.ElapsedPct
+			}
+		}
 		label := strings.Join(nonEmpty(b.group, b.Label), " · ")
 		tip := []string{u.Name + " · " + label, fmt.Sprintf("%d%% %s", r.Value, r.Word)}
 		if t, err := time.Parse(time.RFC3339, b.ResetsAt); err == nil {
 			tip = append(tip, "Resets "+t.Local().Format("Mon 2 Jan 15:04"))
+		}
+		if pace.RunsOut {
+			tip = append(tip, "At this pace: limit reached in "+shortDuration(pace.RunsOutIn))
 		}
 		r.Tooltip = strings.Join(tip, "\n")
 		rows = append(rows, r)

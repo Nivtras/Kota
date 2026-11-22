@@ -7,6 +7,31 @@ import (
 	"aiusagewidget/providers"
 )
 
+func TestBarPace(t *testing.T) {
+	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	bar := func(used float64, left time.Duration) providers.Bar {
+		return providers.Bar{UsedPct: used, WindowSec: 5 * 3600, ResetsAt: now.Add(left).Format(time.RFC3339)}
+	}
+	// 60% used after 2h of 5h → 30%/h → 100% after 3h20m total, i.e. in 1h20m,
+	// before the reset in 3h.
+	p := barPace(bar(60, 3*time.Hour), now)
+	if !p.OK || p.ElapsedPct != 40 || !p.RunsOut || p.RunsOutIn != 80*time.Minute {
+		t.Errorf("fast burn = %+v", p)
+	}
+	// 30% used after 2h → 15%/h → 70% left needs 4h40m > 3h left: fine.
+	if p := barPace(bar(30, 3*time.Hour), now); p.RunsOut {
+		t.Errorf("slow burn should not run out: %+v", p)
+	}
+	// low usage: no forecast noise
+	if p := barPace(bar(10, 4*time.Hour+50*time.Minute), now); p.RunsOut {
+		t.Errorf("tiny usage should not forecast: %+v", p)
+	}
+	// unknown window
+	if p := barPace(providers.Bar{UsedPct: 50, ResetsAt: now.Add(time.Hour).Format(time.RFC3339)}, now); p.OK {
+		t.Errorf("no window → not OK: %+v", p)
+	}
+}
+
 func TestBuildPillRows(t *testing.T) {
 	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
 	at := func(d time.Duration) string { return now.Add(d).Format(time.RFC3339) }
@@ -54,6 +79,17 @@ func TestBuildPillRows(t *testing.T) {
 	rows = buildPillRows(items, Settings{}, now)
 	if rows[0].Value != 0 || rows[0].Reset != "" {
 		t.Errorf("expired window = %+v", rows[0])
+	}
+
+	// pace marker: 5h window, 2h14m left → 2h46m of 5h elapsed ≈ 55%
+	rows = buildPillRows(items[:1], Settings{}, now)
+	if rows[0].Marker != -1 {
+		t.Errorf("no window length → no marker, got %v", rows[0].Marker)
+	}
+	items[0].Groups[0].Bars[0] = providers.Bar{Label: "5-hour limit", UsedPct: 40, ResetsAt: at(2*time.Hour + 14*time.Minute), WindowSec: 5 * 3600}
+	rows = buildPillRows(items[:1], Settings{}, now)
+	if m := rows[0].Marker; m < 55 || m > 56 {
+		t.Errorf("marker = %v, want ~55.3", m)
 	}
 
 	// provider without data
