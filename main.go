@@ -13,6 +13,9 @@ import (
 var assets embed.FS
 
 func main() {
+	if handleInstall() { // install / update / uninstall (install_windows.go)
+		return
+	}
 	app := NewApp()
 	// The Wails window is the panel only; the taskbar pill is a separate
 	// native window (pill_windows.go).

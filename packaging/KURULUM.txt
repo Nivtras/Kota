@@ -1,7 +1,13 @@
 AI Usage Widget — Kurulum
 =========================
 
-Kurulum gerekmez: AIUsageWidget.exe'yi istediğin bir klasöre koy ve çift tıkla.
+AIUsageWidget.exe'ye çift tıkla. İlk açılışta sorar:
+  * Evet  : bu kullanıcı için kurar (%LOCALAPPDATA%\Programs\AIUsageWidget),
+            Başlat menüsüne ekler. Yönetici izni gerekmez.
+            Kaldırmak için: Ayarlar → Uygulamalar → AI Usage Widget → Kaldır.
+  * Hayır : kurmadan, bulunduğu yerden çalışır (bir daha sormaz).
+Güncellemek için: yeni AIUsageWidget.exe'yi çalıştır, "Evet" de; açık olan
+kopya kapanıp yenisi başlar, ayarların korunur.
 
 Ne gerekir
 ----------
@@ -25,7 +31,7 @@ Kullanım
 
 Windows açılışında otomatik başlatmak için
 ------------------------------------------
-Win+R → shell:startup → AIUsageWidget.exe için bir kısayol oluşturup o klasöre koy.
+Panelde ⚙ Ayarlar → "Start with Windows".
 
 Notlar
 ------

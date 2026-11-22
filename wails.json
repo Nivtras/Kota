@@ -2,6 +2,11 @@
   "$schema": "https://wails.io/schemas/config.v2.json",
   "name": "AIUsageWidget",
   "outputfilename": "AIUsageWidget",
+  "info": {
+    "productName": "AI Usage Widget",
+    "productVersion": "1.1.0",
+    "comments": "AI usage limits on the Windows taskbar"
+  },
   "frontend:install": "",
   "frontend:build": "",
   "frontend:dev:watcher": "",

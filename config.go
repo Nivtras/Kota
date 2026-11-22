@@ -13,6 +13,7 @@ type config struct {
 	Taskbar      []string `json:"taskbar,omitempty"`      // provider IDs on the taskbar pill
 	Display      string   `json:"display,omitempty"`      // "used" (default) | "remaining"
 	NotifyOff    bool     `json:"notifyOff,omitempty"`    // usage notifications disabled
+	PortablePath string   `json:"portablePath,omitempty"` // exe the user chose to run without installing
 	NotifyWarn   int      `json:"notifyWarn,omitempty"`   // warning threshold, % used (0 = 80)
 	NotifyCrit   int      `json:"notifyCrit,omitempty"`   // critical threshold, % used (0 = 95)
 	FollowActive bool     `json:"followActive,omitempty"` // show the AI tool in use first on the pill

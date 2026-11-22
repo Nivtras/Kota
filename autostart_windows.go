@@ -42,5 +42,19 @@ func setAutostart(on bool) error {
 	if err != nil {
 		return err
 	}
+	cmd := `"` + exe + `"`
+	if !samePath(exe, installedExe()) {
+		cmd += " --portable" // a copy run from elsewhere: don't ask to install at login
+	}
+	return k.SetStringValue(runValueName, cmd)
+}
+
+// setAutostartPath points "Start with Windows" at exe (after install).
+func setAutostartPath(exe string) error {
+	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
+	if err != nil {
+		return err
+	}
+	defer k.Close()
 	return k.SetStringValue(runValueName, `"`+exe+`"`)
 }
