@@ -35,6 +35,7 @@ type App struct {
 	kick      chan struct{} // asks the refresh loop to fetch now
 
 	notifier *notifier
+	hist     *history
 	active   string // provider of the AI tool in use (follow mode); guarded by cfgMu
 }
 
@@ -43,7 +44,8 @@ func NewApp() *App {
 	cfg := loadConfig()
 	n := newNotifier(path)
 	n.setLevels(cfg.NotifyWarn, cfg.NotifyCrit)
-	return &App{cfg: cfg, panel: &panel{}, notifier: n, kick: make(chan struct{}, 1)}
+	hist := newHistory(filepath.Join(filepath.Dir(configPath()), "history.json"))
+	return &App{cfg: cfg, panel: &panel{}, notifier: n, hist: hist, kick: make(chan struct{}, 1)}
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -202,6 +204,7 @@ func (a *App) fetch() []providers.Usage {
 	a.dataMu.Unlock()
 	close(ch)
 
+	a.hist.record(out, time.Now())
 	a.updatePill()
 	if a.ctx != nil {
 		runtime.EventsEmit(a.ctx, eventUsage, out)
@@ -273,6 +276,11 @@ func (a *App) GetUsage() []providers.Usage {
 		return d
 	}
 	return a.fetch()
+}
+
+// GetHistory returns the last 7 days of the charted limits per provider.
+func (a *App) GetHistory() []ProviderHistory {
+	return a.hist.forProviders(a.snapshot(), time.Now())
 }
 
 // Refresh fetches fresh data now.
