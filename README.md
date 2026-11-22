@@ -31,8 +31,8 @@ tell at a glance whether you're burning through it faster than the clock.
 
 ## Install
 
-1. Download **Kota.exe** from the [latest release](../../releases/latest).
-2. Run it. It offers to install for your user (no admin rights): `%LOCALAPPDATA%\Programs\Kota`,
+1. Download **Kota-win64.zip** from the [latest release](../../releases/latest) and extract it.
+2. Run **Kota.exe**. It offers to install for your user (no admin rights): `%LOCALAPPDATA%\Programs\Kota`,
    a Start menu entry, and an entry in *Settings → Apps* to uninstall. Choose *No* to run it portable.
 3. To update, run a newer Kota.exe and choose *Yes* — your settings are kept.
 
