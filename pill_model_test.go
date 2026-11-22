@@ -92,6 +92,20 @@ func TestBuildPillRows(t *testing.T) {
 		t.Errorf("marker = %v, want ~55.3", m)
 	}
 
+	// follow mode: the tool in use goes first, the other choice stays second
+	rows = buildPillRows(items, Settings{Taskbar: []string{"claude", "codex"}, Follow: true, active: "antigravity"}, now)
+	if len(rows) != 2 || rows[0].ID != "antigravity" || rows[1].ID != "claude" {
+		t.Errorf("follow antigravity = %v, %v", rows[0].ID, rows[1].ID)
+	}
+	rows = buildPillRows(items, Settings{Taskbar: []string{"claude", "codex"}, Follow: true, active: "codex"}, now)
+	if rows[0].ID != "codex" || rows[1].ID != "claude" {
+		t.Errorf("follow codex = %v, %v", rows[0].ID, rows[1].ID)
+	}
+	rows = buildPillRows(items, Settings{Taskbar: []string{"claude", "codex"}, Follow: false, active: "antigravity"}, now)
+	if rows[0].ID != "claude" || rows[1].ID != "codex" {
+		t.Errorf("follow off = %v, %v", rows[0].ID, rows[1].ID)
+	}
+
 	// provider without data
 	rows = buildPillRows([]providers.Usage{{ID: "x", Name: "X", Error: "boom"}}, Settings{}, now)
 	if rows[0].HasBar || rows[0].NA != "unavailable" {

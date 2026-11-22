@@ -13,6 +13,8 @@ type config struct {
 	Taskbar      []string `json:"taskbar,omitempty"`      // provider IDs on the taskbar pill
 	Display      string   `json:"display,omitempty"`      // "used" (default) | "remaining"
 	NotifyOff    bool     `json:"notifyOff,omitempty"`    // usage notifications disabled
+	FollowActive bool     `json:"followActive,omitempty"` // show the AI tool in use first on the pill
+	AllMonitors  bool     `json:"allMonitors,omitempty"`  // pill on every monitor's taskbar
 }
 
 func configPath() string {

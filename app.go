@@ -34,6 +34,7 @@ type App struct {
 	kick      chan struct{} // asks the refresh loop to fetch now
 
 	notifier *notifier
+	active   string // provider of the AI tool in use (follow mode); guarded by cfgMu
 }
 
 func NewApp() *App {
@@ -62,6 +63,24 @@ func (a *App) startup(ctx context.Context) {
 	theToaster.onClick = func() { a.panel.show(a.pill.screenRect()) } // click on a notification
 	a.pill.onMenu = a.onPillMenu
 	go a.refreshLoop()
+	go watchActiveTool(
+		func() bool { a.cfgMu.Lock(); defer a.cfgMu.Unlock(); return a.cfg.FollowActive },
+		func(id string) {
+			a.cfgMu.Lock()
+			a.active = id
+			a.cfgMu.Unlock()
+			a.updatePill()
+		})
+}
+
+// SetFollowActive turns follow mode on or off: the pill shows the AI tool
+// in use first.
+func (a *App) SetFollowActive(on bool) {
+	a.cfgMu.Lock()
+	a.cfg.FollowActive = on
+	saveConfig(a.cfg)
+	a.cfgMu.Unlock()
+	a.updatePill()
 }
 
 // onPillMenu handles the pill's right-click menu.
@@ -204,7 +223,11 @@ func (a *App) snapshot() []providers.Usage {
 
 func (a *App) updatePill() {
 	if a.pill != nil {
-		a.pill.setRows(buildPillRows(a.snapshot(), a.GetSettings(), time.Now()))
+		s := a.GetSettings()
+		a.cfgMu.Lock()
+		s.active = a.active
+		a.cfgMu.Unlock()
+		a.pill.setRows(buildPillRows(a.snapshot(), s, time.Now()))
 	}
 }
 
@@ -266,6 +289,10 @@ type Settings struct {
 	MaxWidth  int      `json:"maxWidth"`
 	Autostart bool     `json:"autostart"` // read-only here; changed via SetAutostart
 	Notify    bool     `json:"notify"`    // read-only here; changed via SetNotifications
+	Follow    bool     `json:"follow"`    // show the tool in use first; changed via SetFollowActive
+	Multi     bool     `json:"multi"`     // pill on every monitor's taskbar; changed via SetAllMonitors
+
+	active string // provider of the app in use (follow mode), not sent to the UI
 }
 
 func (a *App) GetSettings() Settings {
@@ -274,6 +301,8 @@ func (a *App) GetSettings() Settings {
 		Width: clampWidth(a.cfg.CompactWidth), MinWidth: minCompactW, MaxWidth: maxCompactW,
 		Autostart: autostartEnabled(),
 		Notify:    !a.cfg.NotifyOff,
+		Follow:    a.cfg.FollowActive,
+		Multi:     a.cfg.AllMonitors,
 	}
 	if s.Display != "remaining" {
 		s.Display = "used"

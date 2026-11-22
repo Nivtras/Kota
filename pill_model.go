@@ -193,9 +193,37 @@ func taskbarProviders(items []providers.Usage, chosen []string) []providers.Usag
 	return out
 }
 
+// withActiveFirst puts the provider of the app in use first (follow mode),
+// keeping the user's other choice second.
+func withActiveFirst(items, chosen []providers.Usage, active string) []providers.Usage {
+	if active == "" {
+		return chosen
+	}
+	var out []providers.Usage
+	for _, u := range items {
+		if u.ID == active {
+			out = append(out, u)
+			break
+		}
+	}
+	if len(out) == 0 {
+		return chosen // active tool has no provider data
+	}
+	for _, u := range chosen {
+		if u.ID != active && len(out) < 2 {
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
 func buildPillRows(items []providers.Usage, s Settings, now time.Time) []pillRow {
 	var rows []pillRow
-	for _, u := range taskbarProviders(items, s.Taskbar) {
+	list := taskbarProviders(items, s.Taskbar)
+	if s.Follow {
+		list = withActiveFirst(items, list, s.active)
+	}
+	for _, u := range list {
 		r := pillRow{ID: u.ID, Name: u.Name}
 		b, ok := pickBar(u, now)
 		if !ok {
