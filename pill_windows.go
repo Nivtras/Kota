@@ -220,8 +220,8 @@ func (p *pill) loop() {
 	inst, _, _ := pGetModuleHandleW.Call(0)
 	cursor, _, _ := pLoadCursorW.Call(0, idcHand)
 
-	hostClass := utf16("AIUsageWidgetPillHost")
-	pillClass := utf16("AIUsageWidgetPill")
+	hostClass := utf16("KotaPillHost")
+	pillClass := utf16("KotaPill")
 	registerOnce.Do(func() {
 		pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wndClassEx{
 			Size: uint32(unsafe.Sizeof(wndClassEx{})), WndProc: hostProcCallback,

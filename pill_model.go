@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"aiusagewidget/providers"
+	"kota/providers"
 )
 
 type rgb struct{ R, G, B uint8 }

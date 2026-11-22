@@ -7,13 +7,13 @@ import (
 	"sync"
 	"time"
 
-	"aiusagewidget/providers"
+	"kota/providers"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const (
-	windowTitle   = "AI Usage Widget"
+	windowTitle   = "Kota"
 	repaintEvery  = 30 * time.Second // keep reset countdowns on the pill fresh
 	eventUsage    = "usage"          // Go → UI: new provider data
 	eventShown    = "panel:shown"    // Go → UI: panel became visible
@@ -248,7 +248,7 @@ func (a *App) TestNotification() {
 	a.cfgMu.Lock()
 	w, c := normLevels(a.cfg.NotifyWarn, a.cfg.NotifyCrit)
 	a.cfgMu.Unlock()
-	notifyUser("AI Usage notifications are on",
+	notifyUser("Kota notifications are on",
 		fmt.Sprintf("You'll be told at %d%% and %d%% of a limit, and when it's available again.", w, c))
 }
 

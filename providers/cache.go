@@ -9,15 +9,18 @@ import (
 
 var cacheMu sync.Mutex
 
-func cachePath(name string) string {
+// DataDir is where Kota keeps settings, caches and history (%APPDATA%\Kota).
+func DataDir() string {
 	d, err := os.UserConfigDir()
 	if err != nil {
 		d = "."
 	}
-	return filepath.Join(d, "AIUsageWidget", name)
+	return filepath.Join(d, "Kota")
 }
 
-// loadJSON reads %APPDATA%\AIUsageWidget\<name>; a missing file yields T's zero value.
+func cachePath(name string) string { return filepath.Join(DataDir(), name) }
+
+// loadJSON reads %APPDATA%\Kota\<name>; a missing file yields T's zero value.
 func loadJSON[T any](name string) T {
 	cacheMu.Lock()
 	defer cacheMu.Unlock()

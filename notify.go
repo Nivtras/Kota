@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"aiusagewidget/providers"
+	"kota/providers"
 )
 
 const (

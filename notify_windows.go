@@ -88,7 +88,7 @@ func (t *toaster) show(host uintptr, title, body string) {
 		nid.Flags = nifMessage | nifIcon | nifTip
 		nid.CallbackMsg = msgTray
 		nid.Icon = t.icon
-		copyUTF16(nid.Tip[:], "AI Usage")
+		copyUTF16(nid.Tip[:], "Kota")
 		if ok, _, _ := pShellNotifyIconW.Call(nimAdd, uintptr(unsafe.Pointer(&nid))); ok == 0 {
 			dockLog("notify: NIM_ADD failed")
 			return

@@ -96,7 +96,7 @@ func (p *pill) updateTooltip(rows []pillRow) {
 	}
 	text := strings.Join(parts, "\r\n\r\n")
 	if text == "" {
-		text = "AI Usage"
+		text = "Kota"
 	}
 	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\n", "\r\n")
 	if text == p.tip.text {
@@ -124,7 +124,7 @@ func showPillMenu(host uintptr) int {
 	pAppendMenuW.Call(m, mfSeparator, 0, 0)
 	add(MenuResetPosition, "Reset position")
 	pAppendMenuW.Call(m, mfSeparator, 0, 0)
-	add(MenuQuit, "Quit AI Usage")
+	add(MenuQuit, "Quit Kota")
 
 	var pt point
 	pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))

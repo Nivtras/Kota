@@ -171,7 +171,7 @@ func (pn *panel) watchOutside() {
 	}
 }
 
-// dockLog appends a line to %APPDATA%\AIUsageWidget\dock.log (kept small).
+// dockLog appends a line to %APPDATA%\Kota\dock.log (kept small).
 func dockLog(format string, args ...any) {
 	p := filepath.Join(filepath.Dir(configPath()), "dock.log")
 	if fi, err := os.Stat(p); err == nil && fi.Size() > 64<<10 {

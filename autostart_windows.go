@@ -13,7 +13,7 @@ import (
 
 const (
 	runKeyPath   = `Software\Microsoft\Windows\CurrentVersion\Run`
-	runValueName = "AIUsageWidget"
+	runValueName = "Kota"
 )
 
 func autostartEnabled() bool {

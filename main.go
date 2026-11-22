@@ -13,6 +13,7 @@ import (
 var assets embed.FS
 
 func main() {
+	migrateFromOldName() // AI Usage Widget → Kota (install_windows.go)
 	if handleInstall() { // install / update / uninstall (install_windows.go)
 		return
 	}
@@ -33,7 +34,7 @@ func main() {
 		OnDomReady:       app.domReady,
 		Bind:             []interface{}{app},
 		// A second launch (double-click, startup + manual) just exits.
-		SingleInstanceLock: &options.SingleInstanceLock{UniqueId: "aiusagewidget-5c1f2e"},
+		SingleInstanceLock: &options.SingleInstanceLock{UniqueId: "kota-5c1f2e"},
 		Windows: &windows.Options{
 			WebviewIsTransparent: true,
 			WindowIsTranslucent:  true,

@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"aiusagewidget/providers"
+	"kota/providers"
 )
 
 func main() {

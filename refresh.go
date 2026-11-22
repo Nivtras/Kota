@@ -6,7 +6,7 @@ package main
 import (
 	"time"
 
-	"aiusagewidget/providers"
+	"kota/providers"
 )
 
 const (

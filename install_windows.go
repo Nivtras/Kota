@@ -3,13 +3,13 @@
 package main
 
 // Per-user install without admin rights or an installer tool: the exe
-// copies itself to %LOCALAPPDATA%\Programs\AIUsageWidget, adds a Start menu
+// copies itself to %LOCALAPPDATA%\Programs\Kota, adds a Start menu
 // shortcut and an entry in Settings → Apps (uninstall). Running a newer exe
 // from a download updates the installed copy the same way.
 //
-//   AIUsageWidget.exe               asks once whether to install (or update)
-//   AIUsageWidget.exe --uninstall   used by Settings → Apps
-//   AIUsageWidget.exe --portable    never asks; runs from where it is
+//   Kota.exe               asks once whether to install (or update)
+//   Kota.exe --uninstall   used by Settings → Apps
+//   Kota.exe --portable    never asks; runs from where it is
 
 import (
 	"fmt"
@@ -26,13 +26,16 @@ import (
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
+
+	"kota/providers"
 )
 
 const (
 	appVersion     = "1.1.0"
-	appDisplayName = "AI Usage Widget"
-	uninstallKey   = `Software\Microsoft\Windows\CurrentVersion\Uninstall\AIUsageWidget`
-	exeFileName    = "AIUsageWidget.exe"
+	appDisplayName = "Kota"
+	uninstallKey   = `Software\Microsoft\Windows\CurrentVersion\Uninstall\Kota`
+	exeFileName    = "Kota.exe"
+	oldExeFileName = "AIUsageWidget.exe" // the app's name before it became Kota
 )
 
 var (
@@ -61,7 +64,7 @@ func installDir() string {
 		h, _ := os.UserHomeDir()
 		d = filepath.Join(h, "AppData", "Local")
 	}
-	return filepath.Join(d, "Programs", "AIUsageWidget")
+	return filepath.Join(d, "Programs", "Kota")
 }
 
 func installedExe() string { return filepath.Join(installDir(), exeFileName) }
@@ -109,12 +112,12 @@ func handleInstall() bool {
 	if _, err := os.Stat(installedExe()); err == nil {
 		installed = true
 	}
-	q := "Install AI Usage Widget for this user?\n\n" +
+	q := "Install Kota for this user?\n\n" +
 		"It is copied to " + installDir() + " and gets a Start menu entry " +
 		"(uninstall from Settings → Apps). No admin rights needed.\n\n" +
 		"Yes: install    No: run it from here"
 	if installed {
-		q = "AI Usage Widget is already installed.\n\nUpdate the installed copy to version " + appVersion + "?\n" +
+		q = "Kota is already installed.\n\nUpdate the installed copy to version " + appVersion + "?\n" +
 			"A running copy will be restarted. Your settings are kept.\n\n" +
 			"Yes: update    No: run this copy from here"
 	}
@@ -285,7 +288,7 @@ func writeUninstallEntry(dir string) error {
 }
 
 func uninstall() {
-	if messageBox("Uninstall AI Usage Widget?", mbYesNo|mbIconQ) != idYes {
+	if messageBox("Uninstall Kota?", mbYesNo|mbIconQ) != idYes {
 		return
 	}
 	self, _ := os.Executable()
@@ -312,7 +315,7 @@ func uninstall() {
 			_ = os.RemoveAll(data)
 		}
 	}
-	messageBox("AI Usage Widget was uninstalled.", mbIconInfo)
+	messageBox("Kota was uninstalled.", mbIconInfo)
 }
 
 // stopInstances ends running copies of exe ("" = any copy of the app),
@@ -327,7 +330,8 @@ func stopInstances(exe string) {
 	var e windows.ProcessEntry32
 	e.Size = uint32(unsafe.Sizeof(e))
 	for err = windows.Process32First(snap, &e); err == nil; err = windows.Process32Next(snap, &e) {
-		if e.ProcessID == self || !strings.EqualFold(windows.UTF16ToString(e.ExeFile[:]), exeFileName) {
+		name := windows.UTF16ToString(e.ExeFile[:])
+		if e.ProcessID == self || !(strings.EqualFold(name, exeFileName) || strings.EqualFold(name, oldExeFileName)) {
 			continue
 		}
 		h, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, e.ProcessID)
@@ -351,4 +355,25 @@ func waitForExit(pid uint32, limit time.Duration) {
 	}
 	defer windows.CloseHandle(h)
 	_, _ = windows.WaitForSingleObject(h, uint32(limit/time.Millisecond))
+}
+
+// migrateFromOldName carries settings, caches and history over from the
+// app's old name (AI Usage Widget) and moves its autostart entry.
+func migrateFromOldName() {
+	newDir := providers.DataDir()
+	oldDir := filepath.Join(filepath.Dir(newDir), "AIUsageWidget")
+	if _, err := os.Stat(newDir); os.IsNotExist(err) {
+		if _, err := os.Stat(oldDir); err == nil {
+			_ = os.Rename(oldDir, newDir)
+		}
+	}
+	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.QUERY_VALUE|registry.SET_VALUE)
+	if err != nil {
+		return
+	}
+	defer k.Close()
+	if _, _, err := k.GetStringValue("AIUsageWidget"); err == nil {
+		_ = k.DeleteValue("AIUsageWidget")
+		_ = setAutostart(true) // now points at this exe, under the new name
+	}
 }

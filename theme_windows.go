@@ -31,7 +31,7 @@ var (
 // refreshTheme re-reads the taskbar theme; reports whether it changed.
 func refreshTheme() bool {
 	light := false
-	if v := os.Getenv("AIW_THEME"); v == "light" || v == "dark" { // testing override
+	if v := os.Getenv("KOTA_THEME"); v == "light" || v == "dark" { // testing override
 		return lightTaskbar.Swap(v == "light") != (v == "light")
 	}
 	if k, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, registry.QUERY_VALUE); err == nil {

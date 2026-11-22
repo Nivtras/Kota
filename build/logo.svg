@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Kota: two usage bars (like the taskbar pill) and the pace marker. Same geometry as build/makeicon.ps1. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#262A33"/>
+      <stop offset="1" stop-color="#14161B"/>
+    </linearGradient>
+    <linearGradient id="green" gradientUnits="userSpaceOnUse" x1="176" y1="0" x2="646" y2="0">
+      <stop offset="0" stop-color="#2FC977"/>
+      <stop offset="1" stop-color="#5BE39A"/>
+    </linearGradient>
+    <linearGradient id="amber" gradientUnits="userSpaceOnUse" x1="176" y1="0" x2="446" y2="0">
+      <stop offset="0" stop-color="#E9A81F"/>
+      <stop offset="1" stop-color="#F5C451"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#tile)"/>
+  <rect x="176" y="348" width="672" height="128" rx="64" fill="#3A3F4B"/>
+  <rect x="176" y="348" width="470" height="128" rx="64" fill="url(#green)"/>
+  <rect x="176" y="548" width="672" height="128" rx="64" fill="#3A3F4B"/>
+  <rect x="176" y="548" width="270" height="128" rx="64" fill="url(#amber)"/>
+  <rect x="686" y="300" width="52" height="424" rx="26" fill="#F2F3F5"/>
+</svg>

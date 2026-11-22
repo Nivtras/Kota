@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"aiusagewidget/providers"
+	"kota/providers"
 )
 
 func TestBarPace(t *testing.T) {

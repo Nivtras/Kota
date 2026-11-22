@@ -165,13 +165,7 @@ func anyResetPassed(bars []Bar) bool {
 
 var claudeCacheMu sync.Mutex
 
-func claudeCachePath() string {
-	d, err := os.UserConfigDir()
-	if err != nil {
-		d = "."
-	}
-	return filepath.Join(d, "AIUsageWidget", "claude-cache.json")
-}
+func claudeCachePath() string { return filepath.Join(DataDir(), "claude-cache.json") }
 
 func loadClaudeCache() claudeCache {
 	claudeCacheMu.Lock()
@@ -324,7 +318,7 @@ func fetchClaudeLimits(ctx context.Context, token string) ([]Bar, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, claudeUsageURL, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-	req.Header.Set("User-Agent", "AIUsageWidget/0.2")
+	req.Header.Set("User-Agent", "Kota/1.1")
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err

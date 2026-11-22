@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"aiusagewidget/providers"
+	"kota/providers"
 )
 
 func TestHistory(t *testing.T) {

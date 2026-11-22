@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"kota/providers"
 )
 
 type config struct {
@@ -20,13 +22,7 @@ type config struct {
 	AllMonitors  bool     `json:"allMonitors,omitempty"`  // pill on every monitor's taskbar
 }
 
-func configPath() string {
-	d, err := os.UserConfigDir()
-	if err != nil {
-		d = "."
-	}
-	return filepath.Join(d, "AIUsageWidget", "config.json")
-}
+func configPath() string { return filepath.Join(providers.DataDir(), "config.json") }
 
 func loadConfig() config {
 	var c config

@@ -1,9 +1,9 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "AIUsageWidget",
-  "outputfilename": "AIUsageWidget",
+  "name": "Kota",
+  "outputfilename": "Kota",
   "info": {
-    "productName": "AI Usage Widget",
+    "productName": "Kota",
     "productVersion": "1.1.0",
     "comments": "AI usage limits on the Windows taskbar"
   },

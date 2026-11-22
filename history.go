@@ -2,7 +2,7 @@ package main
 
 // Usage history: the used % of each limit, sampled from the data the app
 // already fetches (no extra requests) and kept for 7 days in
-// %APPDATA%\AIUsageWidget\history.json. The panel charts, per provider, the
+// %APPDATA%\Kota\history.json. The panel charts, per provider, the
 // limit the pill shows (usually 5-hour) and its longest limit (usually weekly).
 
 import (
@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"aiusagewidget/providers"
+	"kota/providers"
 )
 
 const (
