@@ -41,10 +41,6 @@ const (
 
 	msgRelayout = wmApp + 1 // re-layout + repaint (posted from any thread)
 	msgRepaint  = wmApp + 2 // repaint only
-	msgStyle    = wmApp + 3 // taskbar style or rows changed: sync pill/buttons
-
-	stylePill    = "pill"
-	styleButtons = "buttons"
 )
 
 func clampWidth(w int) int {
@@ -67,8 +63,6 @@ type pill struct {
 	taskbarCreated uint32
 	lastClick      time.Time // window thread only
 	lookingUp      atomic.Bool
-
-	style string // stylePill | styleButtons
 
 	// Position: the pill's right edge sits `offset` logical px left of the
 	// anchor ("start": Start button's left edge, "tray": notification area).
@@ -108,7 +102,7 @@ func newPill(width int, anchor string, offset int, logos map[string][]byte,
 	if anchor != anchorTray {
 		anchor = anchorStart
 	}
-	p := &pill{width: clampWidth(width), anchor: anchor, offset: offset, logos: logos, style: stylePill,
+	p := &pill{width: clampWidth(width), anchor: anchor, offset: offset, logos: logos,
 		onClick: onClick, onMoved: onMoved, icons: map[iconKey]uintptr{}}
 	thePill = p
 	go p.loop()
@@ -131,51 +125,10 @@ func (p *pill) setPosition(anchor string, offset int) {
 func (p *pill) setRows(rows []pillRow) {
 	p.mu.Lock()
 	p.rows = rows
-	h, style := p.host, p.style
-	p.mu.Unlock()
-	if h == 0 {
-		return
-	}
-	if style == styleButtons {
-		pPostMessageW.Call(h, msgStyle, 0, 0)
-	} else {
-		pPostMessageW.Call(h, msgRepaint, 0, 0)
-	}
-}
-
-// setStyle switches between the pill and per-provider taskbar buttons.
-func (p *pill) setStyle(style string) {
-	if style != styleButtons {
-		style = stylePill
-	}
-	p.mu.Lock()
-	p.style = style
 	h := p.host
 	p.mu.Unlock()
 	if h != 0 {
-		pPostMessageW.Call(h, msgStyle, 0, 0)
-	}
-}
-
-// applyStyle shows the pill or the buttons (window thread).
-func (p *pill) applyStyle() {
-	p.mu.Lock()
-	style, rows, h := p.style, p.rows, p.hwnd
-	p.mu.Unlock()
-	if style == styleButtons {
-		if h != 0 {
-			pShowWindow.Call(h, swHide)
-		}
-		p.mu.Lock()
-		p.screen = rect{} // hidden: no pill area for click hit-tests
-		p.mu.Unlock()
-		theButtons.sync(pillInst, rows, p.logos)
-		return
-	}
-	theButtons.sync(pillInst, nil, p.logos)
-	if h != 0 {
-		pShowWindow.Call(h, swShowNoActive)
-		p.layout()
+		pPostMessageW.Call(h, msgRepaint, 0, 0)
 	}
 }
 
@@ -280,7 +233,7 @@ func (p *pill) createPill(inst uintptr, class *uint16) {
 	p.mu.Unlock()
 	p.lookupStart()
 	p.layout()
-	p.applyStyle() // shows the pill, or keeps it hidden in buttons style
+	pShowWindow.Call(h, swShowNoActive)
 }
 
 // lookupStart asks UI Automation where Start is, off the window thread, and
@@ -325,9 +278,8 @@ func (p *pill) layout() {
 	p.mu.Lock()
 	h, tb, width, startLeft := p.hwnd, p.tb, p.width, p.startLeft
 	anchor, offset, dragging, dragLeft := p.anchor, p.offset, p.dragging, p.dragLeft
-	style := p.style
 	p.mu.Unlock()
-	if h == 0 || style == styleButtons {
+	if h == 0 {
 		return
 	}
 	tbr, ok := windowRect(tb)
@@ -401,9 +353,6 @@ func hostProc(hwnd, m, wp, lp uintptr) uintptr {
 		return 0
 	case m == msgRepaint:
 		p.repaint()
-		return 0
-	case m == msgStyle:
-		p.applyStyle()
 		return 0
 	case m == wmTimer && wp == timerRelayout:
 		pKillTimer.Call(hwnd, timerRelayout)
