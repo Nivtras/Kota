@@ -13,7 +13,10 @@ import (
 )
 
 // updateRepo is the GitHub "owner/name" releases are published to.
+// The check stays off until it is filled in.
 const updateRepo = "OWNER/kota"
+
+func updateRepoSet() bool { return !strings.HasPrefix(updateRepo, "OWNER/") }
 
 var releasesAPI = "https://api.github.com/repos/" + updateRepo + "/releases/latest"
 
@@ -77,7 +80,7 @@ func (a *App) updateLoop() {
 		a.cfgMu.Lock()
 		off := a.cfg.UpdateCheckOff
 		a.cfgMu.Unlock()
-		if !off {
+		if !off && updateRepoSet() {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			info, err := latestRelease(ctx)
 			cancel()
