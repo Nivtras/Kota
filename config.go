@@ -13,6 +13,7 @@ type config struct {
 	Taskbar      []string `json:"taskbar,omitempty"`      // provider IDs on the taskbar pill
 	Display      string   `json:"display,omitempty"`      // "used" (default) | "remaining"
 	NotifyOff    bool     `json:"notifyOff,omitempty"`    // usage notifications disabled
+	TaskbarStyle string   `json:"taskbarStyle,omitempty"` // "pill" (default) | "buttons"
 }
 
 func configPath() string {

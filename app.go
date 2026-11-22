@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+	"unsafe"
 
 	"aiusagewidget/providers"
 
@@ -55,6 +56,15 @@ func (a *App) startup(ctx context.Context) {
 			a.cfgMu.Unlock()
 		})
 	theToaster.onClick = func() { a.panel.show(a.pill.screenRect()) } // click on a notification
+	// Buttons style: open the panel centred on where the button was clicked.
+	theButtons.onClick = func(string) {
+		var pt point
+		pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+		half := int32(float64(panelW) * dpiScale(findWindow("Shell_TrayWnd", "")) / 2)
+		a.panel.toggle(rect{L: pt.X - half, R: pt.X + half})
+	}
+	theButtons.onClose = a.Quit
+	a.pill.setStyle(a.cfg.TaskbarStyle)
 	go a.refreshLoop()
 }
 
@@ -123,6 +133,19 @@ func (a *App) fetch() []providers.Usage {
 		}
 	}
 	return out
+}
+
+// SetTaskbarStyle switches between the pill ("pill") and one taskbar button
+// per provider ("buttons").
+func (a *App) SetTaskbarStyle(style string) {
+	if style != styleButtons {
+		style = stylePill
+	}
+	a.cfgMu.Lock()
+	a.cfg.TaskbarStyle = style
+	saveConfig(a.cfg)
+	a.cfgMu.Unlock()
+	a.pill.setStyle(style)
 }
 
 // SetNotifications turns usage notifications on or off.
@@ -208,6 +231,7 @@ type Settings struct {
 	MaxWidth  int      `json:"maxWidth"`
 	Autostart bool     `json:"autostart"` // read-only here; changed via SetAutostart
 	Notify    bool     `json:"notify"`    // read-only here; changed via SetNotifications
+	Style     string   `json:"style"`     // "pill" | "buttons"; changed via SetTaskbarStyle
 }
 
 func (a *App) GetSettings() Settings {
@@ -216,6 +240,10 @@ func (a *App) GetSettings() Settings {
 		Width: clampWidth(a.cfg.CompactWidth), MinWidth: minCompactW, MaxWidth: maxCompactW,
 		Autostart: autostartEnabled(),
 		Notify:    !a.cfg.NotifyOff,
+		Style:     a.cfg.TaskbarStyle,
+	}
+	if s.Style != styleButtons {
+		s.Style = stylePill
 	}
 	if s.Display != "remaining" {
 		s.Display = "used"

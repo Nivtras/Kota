@@ -18,6 +18,7 @@ Windows'ta AI hesaplarının kullanım/kota durumunu tek bir küçük, her zaman
 - **Tıkla → panel**: tüm limitler + token detayları. Pill'e tekrar tıklayınca, dışarı tıklayınca, Esc ile ya da odak kaybında kapanır.
 - **Ayarlar (⚙ panelde)**: taskbar'da görünecek sağlayıcılar (en fazla 2), taskbar genişliği (180–320 px; 260+ isimleri de gösterir) ve limitlerin "Used" ya da "Remaining" gösterimi. `%APPDATA%\AIUsageWidget\config.json`'a kaydedilir.
 
+- **Görünüm seçeneği (Taskbar style)**: "Pill" (varsayılan) ya da "Buttons": her sağlayıcı görev çubuğunda normal bir uygulama butonu olur — Windows'un kendisi yönetir, ikonlar arasında sürüklenebilir; ikonun altındaki Windows ilerleme çubuğu kullanımı gösterir (vurgu rengi, %60'tan sarı, %85'ten kırmızı), üzerine gelince detay yazar, tıklayınca panel açılır (`buttons_windows.go`).
 - **Hız işareti**: barlardaki ince çizgi pencerenin zamanının ne kadarının geçtiğini gösterir; kullanım çizgiyi geçtiyse saatten hızlı harcıyorsun. Bu hızla sıfırlanmadan önce limit dolacaksa panelde "At this pace: limit reached in …" uyarısı çıkar.
 - **Bildirimler**: limit %80 ve %95'e gelince (pencere başına bir kez) ve dolmuş bir limit yeniden kullanılabilir olunca Windows bildirimi. Ayarlardan kapatılabilir; ek istek atmaz.
 

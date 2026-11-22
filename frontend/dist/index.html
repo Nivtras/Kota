@@ -161,6 +161,13 @@
       <div class="s-title">Taskbar</div>
       <div class="s-hint">Choose up to 2 providers to show on the taskbar.</div>
       <div id="taskbarChoices"></div>
+      <div class="s-title" style="margin-top:12px">Taskbar style</div>
+      <div class="seg" id="styleSeg">
+        <button data-v="pill">Pill</button>
+        <button data-v="buttons">Buttons</button>
+      </div>
+      <div class="s-hint" id="styleHint" style="margin-top:6px"></div>
+      <div id="pillOnly">
       <div class="s-title" style="margin-top:12px">Taskbar width</div>
       <div class="slider-row">
         <input type="range" id="widthSlider" min="180" max="320" step="10">
@@ -169,6 +176,7 @@
       <div class="s-title" style="margin-top:12px">Position</div>
       <div class="s-hint">Drag the pill along the taskbar to move it. Left of Start it follows the Start button; right of it, it stays by the clock.</div>
       <button class="link-btn" id="resetPos">Reset position</button>
+      </div>
     </section>
     <section class="card">
       <label class="choice">
@@ -386,7 +394,20 @@ function renderSettings() {
   $('widthVal').textContent = settings.width + ' px';
   $('autostart').checked = !!settings.autostart;
   $('notify').checked = settings.notify !== false;
+  const style = settings.style === 'buttons' ? 'buttons' : 'pill';
+  for (const b of $('styleSeg').querySelectorAll('button')) b.classList.toggle('on', b.dataset.v === style);
+  $('pillOnly').hidden = style !== 'pill';
+  $('styleHint').textContent = style === 'pill'
+    ? 'A compact widget on the taskbar, next to Start.'
+    : 'One taskbar button per provider, like an app. Drag it among your apps; the bar under the icon shows usage (accent colour, yellow from 60%, red from 85%).';
 }
+$('styleSeg').addEventListener('click', (e) => {
+  const v = e.target.dataset && e.target.dataset.v;
+  if (!v || v === settings.style) return;
+  settings.style = v;
+  api().SetTaskbarStyle(v);
+  renderSettings();
+});
 $('notify').addEventListener('change', (e) => {
   settings.notify = e.target.checked;
   api().SetNotifications(settings.notify);
