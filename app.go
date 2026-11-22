@@ -13,7 +13,6 @@ import (
 
 const (
 	windowTitle   = "AI Usage Widget"
-	refreshEvery  = 2 * time.Minute
 	repaintEvery  = 30 * time.Second // keep reset countdowns on the pill fresh
 	eventUsage    = "usage"          // Go → UI: new provider data
 	eventShown    = "panel:shown"    // Go → UI: panel became visible
@@ -28,21 +27,26 @@ type App struct {
 	pill  *pill
 	panel *panel
 
-	dataMu   sync.Mutex
-	last     []providers.Usage
-	fetching chan struct{} // non-nil while a fetch runs; closed when done
+	dataMu    sync.Mutex
+	last      []providers.Usage
+	fetching  chan struct{} // non-nil while a fetch runs; closed when done
+	fetchedAt time.Time
+	kick      chan struct{} // asks the refresh loop to fetch now
 
 	notifier *notifier
 }
 
 func NewApp() *App {
 	path := filepath.Join(filepath.Dir(configPath()), "notify-state.json")
-	return &App{cfg: loadConfig(), panel: &panel{}, notifier: newNotifier(path)}
+	return &App{cfg: loadConfig(), panel: &panel{}, notifier: newNotifier(path), kick: make(chan struct{}, 1)}
 }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	a.panel.onShown = func() { runtime.EventsEmit(ctx, eventShown) }
+	a.panel.onShown = func() {
+		runtime.EventsEmit(ctx, eventShown)
+		a.refreshIfStale(staleOnOpen)
+	}
 	offset := defaultOffset
 	if a.cfg.PillOffset != nil {
 		offset = *a.cfg.PillOffset
@@ -81,16 +85,51 @@ func (a *App) domReady(ctx context.Context) { go a.panel.attach(windowTitle) }
 
 // refreshLoop owns data refresh, so the pill stays current even while the
 // panel (web view) is hidden.
+//
+// The delay adapts (refresh.go): every 2 min while the user is active,
+// every 15 min while idle or locked, right after a limit resets, and at
+// once when the user comes back from being idle.
 func (a *App) refreshLoop() {
-	a.fetch()
-	refresh := time.NewTicker(refreshEvery)
 	repaint := time.NewTicker(repaintEvery)
+	defer repaint.Stop()
+	var nextAt time.Time
+	fetchNow := func() {
+		a.fetch()
+		nextAt = time.Now().Add(refreshDelay(userIdle(), a.snapshot(), time.Now()))
+	}
+	fetchNow()
+	wasIdle := false
 	for {
+		timer := time.NewTimer(max(time.Until(nextAt), 0))
 		select {
-		case <-refresh.C:
-			a.fetch()
+		case <-timer.C:
+			fetchNow()
+		case <-a.kick:
+			timer.Stop()
+			fetchNow()
 		case <-repaint.C:
-			a.updatePill()
+			timer.Stop()
+			idle := userIdle() >= idleAfter
+			if wasIdle && !idle {
+				fetchNow() // back at the keyboard: show fresh numbers
+			} else {
+				a.updatePill()
+			}
+			wasIdle = idle
+		}
+	}
+}
+
+// refreshIfStale asks the refresh loop to fetch now when the data is older
+// than d (e.g. the panel was just opened).
+func (a *App) refreshIfStale(d time.Duration) {
+	a.dataMu.Lock()
+	stale := time.Since(a.fetchedAt) > d
+	a.dataMu.Unlock()
+	if stale {
+		select {
+		case a.kick <- struct{}{}:
+		default:
 		}
 	}
 }
@@ -122,7 +161,7 @@ func (a *App) fetch() []providers.Usage {
 	wg.Wait()
 
 	a.dataMu.Lock()
-	a.last, a.fetching = out, nil
+	a.last, a.fetching, a.fetchedAt = out, nil, time.Now()
 	a.dataMu.Unlock()
 	close(ch)
 
