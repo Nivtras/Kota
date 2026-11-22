@@ -100,6 +100,7 @@ var winEventCallback = syscall.NewCallback(winEventProc)
 
 func newPill(width int, anchor string, offset int, logos map[string][]byte,
 	onClick func(rect), onMoved func(string, int)) *pill {
+	refreshTheme()
 	if anchor != anchorTray {
 		anchor = anchorStart
 	}
@@ -385,6 +386,10 @@ func hostProc(hwnd, m, wp, lp uintptr) uintptr {
 		}
 		return 0
 	case m == wmDisplayChange || m == wmSettingChange:
+		// Theme switches arrive as WM_SETTINGCHANGE("ImmersiveColorSet").
+		if refreshTheme() {
+			p.repaint()
+		}
 		pSetTimer.Call(hwnd, timerRelayout, 300, 0)
 	}
 	r, _, _ := pDefWindowProcW.Call(hwnd, m, wp, lp)
@@ -582,20 +587,20 @@ func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 
 // ---------- painting (window thread) ----------
 
-var (
-	colBg       = rgb{28, 28, 31}
-	colBorder   = rgb{52, 52, 56}
-	colBorderHi = rgb{92, 92, 98}
-	colTrack    = rgb{54, 54, 58}
-	colText     = rgb{236, 236, 239}
-	colMuted    = rgb{142, 142, 150}
-	colMarker   = rgb{210, 210, 216}
-)
+// Current palette, set from the taskbar theme at the start of each paint
+// (window thread only).
+var colBg, colBorder, colBorderHi, colTrack, colText, colMuted, colMarker rgb
+
+func useTheme(t pillTheme) {
+	colBg, colBorder, colBorderHi, colTrack = t.Bg, t.Border, t.BorderHi, t.Track
+	colText, colMuted, colMarker = t.Text, t.Muted, t.Marker
+}
 
 func (p *pill) paint(hwnd uintptr) {
 	var ps paintStruct
 	hdc, _, _ := pBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 	defer pEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
+	useTheme(currentTheme())
 
 	p.mu.Lock()
 	rows, hover, width := p.rows, p.hover, p.width

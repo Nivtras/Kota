@@ -17,6 +17,27 @@
     --warn: #f5b942;
     --bad: #f26d6d;
     --pill: rgba(255, 255, 255, 0.08);
+    --strong: rgba(255, 255, 255, 0.14);
+    --marker: #d2d2d8;
+    --accent: #8ab4ff;
+  }
+  /* Follows the Windows app theme (Settings → Personalization → Colors). */
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: rgba(249, 249, 251, 0.97);
+      --line: rgba(0, 0, 0, 0.09);
+      --hover: rgba(0, 0, 0, 0.05);
+      --text: #1b1b1f;
+      --muted: #5f5f6b;
+      --track: rgba(0, 0, 0, 0.10);
+      --ok: #1fa85f;
+      --warn: #c98a0c;
+      --bad: #d64545;
+      --pill: rgba(0, 0, 0, 0.06);
+      --strong: rgba(0, 0, 0, 0.10);
+      --marker: #3c3c46;
+      --accent: #2f6fde;
+    }
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; background: transparent; }
@@ -40,21 +61,21 @@
   }
   .choice:hover { background: var(--hover); }
   .choice.disabled { opacity: .45; cursor: not-allowed; }
-  .choice input { accent-color: #8ab4ff; width: 14px; height: 14px; margin: 0; }
+  .choice input { accent-color: var(--accent); width: 14px; height: 14px; margin: 0; }
   .choice .logo { width: 18px; height: 18px; }
   .seg { display: inline-flex; background: var(--pill); border-radius: 8px; padding: 2px; margin-top: 6px; }
   .seg button {
     border: 0; background: transparent; color: var(--muted);
     font: inherit; font-weight: 600; padding: 5px 14px; border-radius: 6px; cursor: pointer;
   }
-  .seg button.on { background: rgba(255,255,255,.14); color: var(--text); }
+  .seg button.on { background: var(--strong); color: var(--text); }
   .slider-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
-  .slider-row input[type=range] { flex: 1; accent-color: #8ab4ff; }
+  .slider-row input[type=range] { flex: 1; accent-color: var(--accent); }
   .link-btn {
     border: 1px solid var(--line); background: var(--pill); color: var(--text);
     font: inherit; font-size: 11px; padding: 4px 10px; border-radius: 6px; cursor: pointer;
   }
-  .link-btn:hover { background: rgba(255,255,255,.14); }
+  .link-btn:hover { background: var(--strong); }
   .slider-row .val { width: 48px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
 
   /* ---------- panel ---------- */
@@ -114,7 +135,7 @@
   .track { position: relative; height: 5px; background: var(--track); border-radius: 3px; overflow: visible; }
   .track .fill { position: absolute; left: 0; top: 0; }
   /* pace marker: share of the window's time that has passed */
-  .marker { position: absolute; top: -3px; width: 2px; height: 11px; margin-left: -1px; background: #d2d2d8; border-radius: 1px; }
+  .marker { position: absolute; top: -3px; width: 2px; height: 11px; margin-left: -1px; background: var(--marker); border-radius: 1px; }
   .pace-warn { color: var(--warn); font-size: 11px; margin: -2px 0 4px 120px; }
   .fill { height: 100%; border-radius: 3px; transition: width .4s ease; }
   .reset { color: var(--muted); font-size: 11px; text-align: right; white-space: nowrap; }
