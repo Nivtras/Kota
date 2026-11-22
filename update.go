@@ -14,7 +14,7 @@ import (
 
 // updateRepo is the GitHub "owner/name" releases are published to.
 // The check stays off until it is filled in.
-const updateRepo = "OWNER/kota"
+const updateRepo = "Nivtras/Kota"
 
 func updateRepoSet() bool { return !strings.HasPrefix(updateRepo, "OWNER/") }
 
