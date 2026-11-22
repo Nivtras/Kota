@@ -64,7 +64,12 @@ func comRelease(obj unsafe.Pointer) {
 }
 
 // uiaWorker owns one COM apartment on a locked OS thread.
-type uiaWorker struct{ req chan chan uiaResult }
+type uiaWorker struct{ req chan uiaRequest }
+
+type uiaRequest struct {
+	tb    uintptr // taskbar window to search (primary or secondary)
+	reply chan uiaResult
+}
 
 type uiaResult struct {
 	left int32
@@ -72,7 +77,7 @@ type uiaResult struct {
 }
 
 func newUIAWorker() *uiaWorker {
-	w := &uiaWorker{req: make(chan chan uiaResult)}
+	w := &uiaWorker{req: make(chan uiaRequest)}
 	go func() {
 		runtime.LockOSThread()
 		pCoInitializeEx.Call(0, 0) // COINIT_MULTITHREADED
@@ -80,28 +85,31 @@ func newUIAWorker() *uiaWorker {
 		hr, _, _ := pCoCreateInstance.Call(
 			uintptr(unsafe.Pointer(&clsidCUIAutomation)), 0, clsctxInprocServer,
 			uintptr(unsafe.Pointer(&iidIUIAutomation)), uintptr(unsafe.Pointer(&automation)))
-		for reply := range w.req {
+		for r := range w.req {
 			if int32(hr) < 0 || automation == nil {
-				reply <- uiaResult{err: errors.New("UI Automation unavailable")}
+				r.reply <- uiaResult{err: errors.New("UI Automation unavailable")}
 				continue
 			}
-			l, err := findStartLeft(automation)
-			reply <- uiaResult{l, err}
+			l, err := findStartLeft(automation, r.tb)
+			r.reply <- uiaResult{l, err}
 		}
 	}()
 	return w
 }
 
-// startLeft returns the Start button's left edge in physical pixels.
-func (w *uiaWorker) startLeft() (int32, error) {
+// startLeft returns the left edge (physical px) of the Start button on the
+// given taskbar; tb 0 = the primary taskbar.
+func (w *uiaWorker) startLeft(tb uintptr) (int32, error) {
 	reply := make(chan uiaResult, 1)
-	w.req <- reply
+	w.req <- uiaRequest{tb, reply}
 	r := <-reply
 	return r.left, r.err
 }
 
-func findStartLeft(automation unsafe.Pointer) (int32, error) {
-	tb := findWindow("Shell_TrayWnd", "")
+func findStartLeft(automation unsafe.Pointer, tb uintptr) (int32, error) {
+	if tb == 0 {
+		tb = findWindow("Shell_TrayWnd", "")
+	}
 	if tb == 0 {
 		return 0, errStartNotFound
 	}

@@ -46,6 +46,7 @@ var (
 	pTranslateMessage           = user32.NewProc("TranslateMessage")
 	pDispatchMessageW           = user32.NewProc("DispatchMessageW")
 	pPostMessageW               = user32.NewProc("PostMessageW")
+	pPostQuitMessage            = user32.NewProc("PostQuitMessage")
 	pRegisterWindowMessageW     = user32.NewProc("RegisterWindowMessageW")
 	pInvalidateRect             = user32.NewProc("InvalidateRect")
 	pBeginPaint                 = user32.NewProc("BeginPaint")
@@ -112,6 +113,7 @@ const (
 	hwndTopmost     = ^uintptr(0) // -1
 
 	wmDestroy        = 0x0002
+	wmClose          = 0x0010
 	wmPaint          = 0x000F
 	wmEraseBkgnd     = 0x0014
 	wmSetCursor      = 0x0020

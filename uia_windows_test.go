@@ -11,7 +11,7 @@ import (
 func TestStartButtonLookup(t *testing.T) {
 	w := newUIAWorker()
 	t0 := time.Now()
-	left, err := w.startLeft()
+	left, err := w.startLeft(0)
 	if err != nil {
 		t.Skipf("no Start button available here: %v", err)
 	}
@@ -19,7 +19,7 @@ func TestStartButtonLookup(t *testing.T) {
 	if left <= 0 {
 		t.Fatalf("unexpected left edge %d", left)
 	}
-	if _, err := w.startLeft(); err != nil {
+	if _, err := w.startLeft(0); err != nil {
 		t.Fatalf("second lookup failed: %v", err)
 	}
 }

@@ -58,35 +58,35 @@ type toolInfo struct {
 	Reserved uintptr
 }
 
-// tooltip state (window thread only)
-var (
-	tipHwnd  uintptr
-	tipOwner uintptr // pill window the tool is registered for
-	tipText  string
-)
+// tooltipState is a pill's tooltip (window thread only).
+type tooltipState struct {
+	hwnd  uintptr
+	owner uintptr // pill window the tool is registered for
+	text  string
+}
 
 // attachTooltip (re)creates the tooltip for the pill window h. The tooltip
 // is owned by our hidden host window (a top-level window of ours), not by
 // the taskbar.
-func attachTooltip(host, h, inst uintptr) {
-	if tipHwnd != 0 {
-		pDestroyWindow.Call(tipHwnd)
-		tipHwnd = 0
+func (p *pill) attachTooltip(host, h, inst uintptr) {
+	if p.tip.hwnd != 0 {
+		pDestroyWindow.Call(p.tip.hwnd)
+		p.tip = tooltipState{}
 	}
 	t, _, _ := pCreateWindowExW.Call(0x8 /*WS_EX_TOPMOST*/, uintptr(unsafe.Pointer(utf16("tooltips_class32"))), 0,
 		wsPopup|ttsAlwaysTip|ttsNoPrefix, 0, 0, 0, 0, host, 0, inst, 0)
 	if t == 0 {
 		return
 	}
-	tipHwnd, tipOwner, tipText = t, h, ""
+	p.tip = tooltipState{hwnd: t, owner: h}
 	ti := toolInfo{Size: uint32(unsafe.Sizeof(toolInfo{})), Flags: ttfIDIsHwnd | ttfSubclass, Hwnd: h, ID: h, Inst: inst, Text: utf16(" ")}
 	pSendMessageW.Call(t, ttmAddToolW, 0, uintptr(unsafe.Pointer(&ti)))
 	pSendMessageW.Call(t, ttmSetMaxTipWidth, 0, 420)
 }
 
 // updateTooltip sets the text from the pill rows.
-func updateTooltip(rows []pillRow) {
-	if tipHwnd == 0 || tipOwner == 0 {
+func (p *pill) updateTooltip(rows []pillRow) {
+	if p.tip.hwnd == 0 || p.tip.owner == 0 {
 		return
 	}
 	var parts []string
@@ -100,12 +100,12 @@ func updateTooltip(rows []pillRow) {
 		text = "AI Usage"
 	}
 	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\n", "\r\n")
-	if text == tipText {
+	if text == p.tip.text {
 		return
 	}
-	tipText = text
-	ti := toolInfo{Size: uint32(unsafe.Sizeof(toolInfo{})), Flags: ttfIDIsHwnd, Hwnd: tipOwner, ID: tipOwner, Text: utf16(text)}
-	pSendMessageW.Call(tipHwnd, ttmUpdateTipTextW, 0, uintptr(unsafe.Pointer(&ti)))
+	p.tip.text = text
+	ti := toolInfo{Size: uint32(unsafe.Sizeof(toolInfo{})), Flags: ttfIDIsHwnd, Hwnd: p.tip.owner, ID: p.tip.owner, Text: utf16(text)}
+	pSendMessageW.Call(p.tip.hwnd, ttmUpdateTipTextW, 0, uintptr(unsafe.Pointer(&ti)))
 }
 
 // showPillMenu shows the right-click menu at the cursor and returns the

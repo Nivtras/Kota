@@ -77,7 +77,8 @@ func (pn *panel) show(pill rect) {
 	if h == 0 {
 		return
 	}
-	tb := findWindow("Shell_TrayWnd", "")
+	// The taskbar of the monitor whose pill was clicked.
+	tb := taskbarAt(point{(pill.L + pill.R) / 2, (pill.T + pill.B) / 2})
 	tbr, ok := windowRect(tb)
 	if !ok {
 		return
@@ -156,7 +157,7 @@ func (pn *panel) watchOutside() {
 		var pt point
 		pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
 		r, _ := windowRect(h)
-		outside := fg != h && !r.has(pt.X, pt.Y) && !thePillHas(pt)
+		outside := fg != h && !r.has(pt.X, pt.Y) && !anyPillHas(pt)
 		switch {
 		case down && !wasDown:
 			pressedOutside = outside
@@ -168,10 +169,6 @@ func (pn *panel) watchOutside() {
 		}
 		wasDown = down
 	}
-}
-
-func thePillHas(pt point) bool {
-	return thePill != nil && thePill.screenRect().has(pt.X, pt.Y)
 }
 
 // dockLog appends a line to %APPDATA%\AIUsageWidget\dock.log (kept small).

@@ -24,7 +24,7 @@ type App struct {
 	ctx   context.Context
 	cfgMu sync.Mutex // guards cfg writes from the pill's drag callback
 	cfg   config
-	pill  *pill
+	pill  *pillSet // primary pill + one per secondary taskbar
 	panel *panel
 
 	dataMu    sync.Mutex
@@ -52,16 +52,18 @@ func (a *App) startup(ctx context.Context) {
 	if a.cfg.PillOffset != nil {
 		offset = *a.cfg.PillOffset
 	}
-	a.pill = newPill(a.cfg.CompactWidth, a.cfg.PillAnchor, offset, loadLogos(),
+	primary := newPill(a.cfg.CompactWidth, a.cfg.PillAnchor, offset, loadLogos(),
 		func(r rect) { a.panel.toggle(r) },
-		func(anchor string, off int) { // the user dragged the pill
+		func(anchor string, off int) { // the user dragged a pill
 			a.cfgMu.Lock()
 			a.cfg.PillAnchor, a.cfg.PillOffset = anchor, &off
 			saveConfig(a.cfg)
 			a.cfgMu.Unlock()
+			a.pill.setPosition(anchor, off) // keep the other monitors in step
 		})
+	primary.onMenu = a.onPillMenu
+	a.pill = newPillSet(primary, a.cfg.AllMonitors)
 	theToaster.onClick = func() { a.panel.show(a.pill.screenRect()) } // click on a notification
-	a.pill.onMenu = a.onPillMenu
 	go a.refreshLoop()
 	go watchActiveTool(
 		func() bool { a.cfgMu.Lock(); defer a.cfgMu.Unlock(); return a.cfg.FollowActive },
@@ -81,6 +83,18 @@ func (a *App) SetFollowActive(on bool) {
 	saveConfig(a.cfg)
 	a.cfgMu.Unlock()
 	a.updatePill()
+}
+
+// SetAllMonitors shows the pill on every monitor's taskbar, or only on the
+// main one.
+func (a *App) SetAllMonitors(on bool) {
+	a.cfgMu.Lock()
+	a.cfg.AllMonitors = on
+	saveConfig(a.cfg)
+	a.cfgMu.Unlock()
+	if a.pill != nil {
+		a.pill.setMulti(on)
+	}
 }
 
 // onPillMenu handles the pill's right-click menu.

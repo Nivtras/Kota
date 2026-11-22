@@ -80,6 +80,38 @@ type pill struct {
 	onMenu  func(cmd int)                   // right-click menu choice; own goroutine
 	logos   map[string][]byte               // provider id → PNG
 	icons   map[iconKey]uintptr
+
+	// Secondary pills live on another monitor's taskbar (fixedTB). They
+	// close themselves when Explorer restarts; the pill set recreates them.
+	secondary bool
+	fixedTB   uintptr
+	closed    atomic.Bool
+
+	tip tooltipState // window thread only
+}
+
+// Window procedures find their pill through these (several pills can run,
+// one per taskbar).
+var (
+	pillsMu    sync.Mutex
+	pillByHost = map[uintptr]*pill{}
+	pillByHwnd = map[uintptr]*pill{}
+)
+
+func pillFor(m map[uintptr]*pill, h uintptr) *pill {
+	pillsMu.Lock()
+	defer pillsMu.Unlock()
+	return m[h]
+}
+
+func allPills() []*pill {
+	pillsMu.Lock()
+	defer pillsMu.Unlock()
+	out := make([]*pill, 0, len(pillByHost))
+	for _, p := range pillByHost {
+		out = append(out, p)
+	}
+	return out
 }
 
 const (
@@ -93,10 +125,15 @@ type iconKey struct {
 	size int32
 }
 
-var thePill *pill // the window procedures need a package-level receiver
+var thePill *pill // the primary pill (main taskbar)
 
 // Created once: syscall.NewCallback slots are limited and never freed.
-var winEventCallback = syscall.NewCallback(winEventProc)
+var (
+	winEventCallback = syscall.NewCallback(winEventProc)
+	hostProcCallback = syscall.NewCallback(hostProc)
+	pillProcCallback = syscall.NewCallback(pillProc)
+	registerOnce     sync.Once
+)
 
 func newPill(width int, anchor string, offset int, logos map[string][]byte,
 	onClick func(rect), onMoved func(string, int)) *pill {
@@ -109,6 +146,29 @@ func newPill(width int, anchor string, offset int, logos map[string][]byte,
 	thePill = p
 	go p.loop()
 	return p
+}
+
+// newSecondaryPill starts a pill on another monitor's taskbar, sharing the
+// primary's settings and callbacks.
+func newSecondaryPill(primary *pill, tb uintptr) *pill {
+	primary.mu.Lock()
+	p := &pill{width: primary.width, anchor: primary.anchor, offset: primary.offset, rows: primary.rows,
+		logos: primary.logos, onClick: primary.onClick, onMoved: primary.onMoved, onMenu: primary.onMenu,
+		icons: map[iconKey]uintptr{}, secondary: true, fixedTB: tb}
+	primary.mu.Unlock()
+	go p.loop()
+	return p
+}
+
+// close shuts a pill's window thread down (any goroutine).
+func (p *pill) close() {
+	p.closed.Store(true)
+	p.mu.Lock()
+	h := p.host
+	p.mu.Unlock()
+	if h != 0 {
+		pPostMessageW.Call(h, wmClose, 0, 0)
+	}
 }
 
 // setPosition moves the pill to an anchor/offset (e.g. "reset position").
@@ -161,15 +221,17 @@ func (p *pill) loop() {
 	cursor, _, _ := pLoadCursorW.Call(0, idcHand)
 
 	hostClass := utf16("AIUsageWidgetPillHost")
-	pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wndClassEx{
-		Size: uint32(unsafe.Sizeof(wndClassEx{})), WndProc: syscall.NewCallback(hostProc),
-		Instance: inst, ClassName: hostClass,
-	})))
 	pillClass := utf16("AIUsageWidgetPill")
-	pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wndClassEx{
-		Size: uint32(unsafe.Sizeof(wndClassEx{})), WndProc: syscall.NewCallback(pillProc),
-		Instance: inst, ClassName: pillClass, Cursor: cursor,
-	})))
+	registerOnce.Do(func() {
+		pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wndClassEx{
+			Size: uint32(unsafe.Sizeof(wndClassEx{})), WndProc: hostProcCallback,
+			Instance: inst, ClassName: hostClass,
+		})))
+		pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wndClassEx{
+			Size: uint32(unsafe.Sizeof(wndClassEx{})), WndProc: pillProcCallback,
+			Instance: inst, ClassName: pillClass, Cursor: cursor,
+		})))
+	})
 
 	// A hidden top-level window: receives the TaskbarCreated broadcast (child
 	// windows don't) and owns the timers.
@@ -179,6 +241,12 @@ func (p *pill) loop() {
 	p.mu.Lock()
 	p.host, p.taskbarCreated = host, uint32(tc)
 	p.mu.Unlock()
+	pillsMu.Lock()
+	pillByHost[host] = p
+	pillsMu.Unlock()
+	if p.closed.Load() { // closed before the thread got going
+		pPostMessageW.Call(host, wmClose, 0, 0)
+	}
 
 	p.createPill(inst, pillClass)
 	pSetTimer.Call(host, timerFallback, 5000, 0)
@@ -203,6 +271,12 @@ var (
 func (p *pill) createPill(inst uintptr, class *uint16) {
 	pillInst, pillClass = inst, class
 	tb := findWindow("Shell_TrayWnd", "")
+	if p.secondary {
+		tb = p.fixedTB
+		if ok, _, _ := pIsWindow.Call(tb); ok == 0 {
+			return
+		}
+	}
 	if tb == 0 {
 		return // taskbar not there yet; the fallback timer retries
 	}
@@ -234,8 +308,11 @@ func (p *pill) createPill(inst uintptr, class *uint16) {
 	p.screen = rect{} // new window: force the first layout to size/move it
 	rows, host := p.rows, p.host
 	p.mu.Unlock()
-	attachTooltip(host, h, inst)
-	updateTooltip(rows)
+	pillsMu.Lock()
+	pillByHwnd[h] = p
+	pillsMu.Unlock()
+	p.attachTooltip(host, h, inst)
+	p.updateTooltip(rows)
 	p.lookupStart()
 	p.layout()
 	pShowWindow.Call(h, swShowNoActive)
@@ -251,7 +328,7 @@ func (p *pill) lookupStart() {
 	}
 	go func() {
 		defer p.lookingUp.Store(false)
-		v, err := uia.startLeft()
+		v, err := uia.startLeft(p.fixedTB) // 0 = primary taskbar
 		if err != nil {
 			return
 		}
@@ -335,9 +412,21 @@ func (p *pill) layout() {
 }
 
 func hostProc(hwnd, m, wp, lp uintptr) uintptr {
-	p := thePill
+	p := pillFor(pillByHost, hwnd)
+	if p == nil {
+		r, _, _ := pDefWindowProcW.Call(hwnd, m, wp, lp)
+		return r
+	}
 	switch {
-	case p != nil && uint32(m) == p.taskbarCreated && p.taskbarCreated != 0:
+	case m == wmClose:
+		p.shutdown(hwnd)
+		return 0
+	case p.secondary && uint32(m) == p.taskbarCreated && p.taskbarCreated != 0:
+		// Explorer restarted: secondary taskbars get new windows; the pill
+		// set starts a fresh pill for each.
+		p.shutdown(hwnd)
+		return 0
+	case uint32(m) == p.taskbarCreated && p.taskbarCreated != 0:
 		// Explorer restarted: the old pill died with the old taskbar.
 		dockLog("TaskbarCreated: recreating pill")
 		p.mu.Lock()
@@ -346,6 +435,9 @@ func hostProc(hwnd, m, wp, lp uintptr) uintptr {
 		p.mu.Unlock()
 		if old != 0 {
 			pDestroyWindow.Call(old)
+			pillsMu.Lock()
+			delete(pillByHwnd, old)
+			pillsMu.Unlock()
 		}
 		p.createPill(pillInst, pillClass)
 		return 0
@@ -361,7 +453,7 @@ func hostProc(hwnd, m, wp, lp uintptr) uintptr {
 		p.mu.Lock()
 		rows := p.rows
 		p.mu.Unlock()
-		updateTooltip(rows)
+		p.updateTooltip(rows)
 		return 0
 	case m == wmTimer && wp == timerRelayout:
 		pKillTimer.Call(hwnd, timerRelayout)
@@ -379,6 +471,10 @@ func hostProc(hwnd, m, wp, lp uintptr) uintptr {
 		alive := p.hwnd
 		p.mu.Unlock()
 		if ok, _, _ := pIsWindow.Call(alive); alive == 0 || ok == 0 {
+			if p.secondary {
+				p.shutdown(hwnd) // its taskbar is gone; the pill set decides
+				return 0
+			}
 			p.createPill(pillInst, pillClass) // lost without a broadcast
 		} else {
 			p.lookupStart()
@@ -396,20 +492,46 @@ func hostProc(hwnd, m, wp, lp uintptr) uintptr {
 	return r
 }
 
-// winEventProc: a window in Explorer moved. If it's the taskbar or one of
-// its children, Start may have moved too — re-layout shortly (debounced).
-func winEventProc(hook, event, hwnd, idObject, idChild, thread, ms uintptr) uintptr {
-	p := thePill
-	if p == nil {
-		return 0
-	}
+// shutdown destroys this pill's windows and ends its thread (window thread).
+func (p *pill) shutdown(host uintptr) {
+	p.closed.Store(true)
 	p.mu.Lock()
-	tb, host := p.tb, p.host
+	h, hook := p.hwnd, p.hook
+	p.hwnd, p.hook = 0, 0
 	p.mu.Unlock()
-	if hwnd == tb {
-		pSetTimer.Call(host, timerRelayout, 150, 0)
-	} else if ok, _, _ := pIsChild.Call(tb, hwnd); ok != 0 {
-		pSetTimer.Call(host, timerRelayout, 150, 0)
+	if hook != 0 {
+		pUnhookWinEvent.Call(hook)
+	}
+	if p.tip.hwnd != 0 {
+		pDestroyWindow.Call(p.tip.hwnd)
+		p.tip = tooltipState{}
+	}
+	if h != 0 {
+		pDestroyWindow.Call(h)
+	}
+	pillsMu.Lock()
+	delete(pillByHost, host)
+	delete(pillByHwnd, h)
+	pillsMu.Unlock()
+	pDestroyWindow.Call(host)
+	pPostQuitMessage.Call(0)
+}
+
+// winEventProc: a window in Explorer moved. If it's a taskbar or one of its
+// children, Start may have moved too — re-layout that pill (debounced).
+func winEventProc(hook, event, hwnd, idObject, idChild, thread, ms uintptr) uintptr {
+	for _, p := range allPills() {
+		p.mu.Lock()
+		tb, host := p.tb, p.host
+		p.mu.Unlock()
+		if tb == 0 {
+			continue
+		}
+		if hwnd == tb {
+			pSetTimer.Call(host, timerRelayout, 150, 0)
+		} else if ok, _, _ := pIsChild.Call(tb, hwnd); ok != 0 {
+			pSetTimer.Call(host, timerRelayout, 150, 0)
+		}
 	}
 	return 0
 }
@@ -470,7 +592,11 @@ func (p *pill) repaint() {
 }
 
 func pillProc(hwnd, m, wp, lp uintptr) uintptr {
-	p := thePill
+	p := pillFor(pillByHwnd, hwnd)
+	if p == nil {
+		r, _, _ := pDefWindowProcW.Call(hwnd, m, wp, lp)
+		return r
+	}
 	switch m {
 	case wmPaint:
 		p.paint(hwnd)
