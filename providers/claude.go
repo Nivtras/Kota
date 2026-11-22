@@ -24,9 +24,12 @@ type Claude struct{}
 func (c *Claude) ID() string   { return "claude" }
 func (c *Claude) Name() string { return "Claude" }
 
+const claudeClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+
+// claudeTokenURL is a var so tests can point it at a fake server.
+var claudeTokenURL = "https://console.anthropic.com/v1/oauth/token"
+
 const (
-	claudeClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-	claudeTokenURL = "https://console.anthropic.com/v1/oauth/token"
 	claudeUsageURL = "https://api.anthropic.com/api/oauth/usage"
 )
 
@@ -219,45 +222,70 @@ func claudeToken(ctx context.Context) (*claudeOauth, error) {
 	credsMu.Lock()
 	defer credsMu.Unlock()
 
+	file, o, err := readClaudeCreds()
+	if err != nil {
+		return nil, err
+	}
+	if o.fresh() {
+		return o, nil
+	}
+	if o.RefreshToken == "" {
+		return o, errNotSignedIn
+	}
+	if err := refreshClaude(ctx, o); err != nil {
+		// Claude Code may have refreshed (and rotated the refresh token) in
+		// the meantime; if the file now holds a valid token, use it.
+		if _, again, rerr := readClaudeCreds(); rerr == nil && again.fresh() {
+			return again, nil
+		}
+		return o, fmt.Errorf("token refresh failed (%v) — run /login in `claude` again.", err)
+	}
+	writeClaudeCreds(file, o)
+	return o, nil
+}
+
+var errNotSignedIn = errors.New("Not signed in — run `claude` in a terminal and use /login to see plan limits.")
+
+func (o *claudeOauth) fresh() bool {
+	return o.AccessToken != "" && time.UnixMilli(o.ExpiresAt).After(time.Now().Add(time.Minute))
+}
+
+func readClaudeCreds() (map[string]json.RawMessage, *claudeOauth, error) {
 	raw, err := os.ReadFile(credsPath())
 	if err != nil {
-		return nil, errors.New("Not signed in — run `claude` in a terminal and use /login to see plan limits.")
+		return nil, nil, errNotSignedIn
 	}
 	var file map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &file); err != nil {
-		return nil, errors.New("credentials file is unreadable")
+		return nil, nil, errors.New("credentials file is unreadable")
 	}
 	var o claudeOauth
 	_ = json.Unmarshal(file["claudeAiOauth"], &o)
+	return file, &o, nil
+}
 
-	fresh := o.AccessToken != "" && time.UnixMilli(o.ExpiresAt).After(time.Now().Add(time.Minute))
-	if fresh {
-		return &o, nil
-	}
-	if o.RefreshToken == "" {
-		return &o, errors.New("Not signed in — run `claude` in a terminal and use /login to see plan limits.")
-	}
-	if err := refreshClaude(ctx, &o); err != nil {
-		return &o, fmt.Errorf("token refresh failed (%v) — run /login in `claude` again.", err)
-	}
-	// Write back, preserving every other field in the file.
-	var oauthMap map[string]any
+// writeClaudeCreds saves the refreshed token, preserving every other field
+// (numbers are kept verbatim, not round-tripped through float64).
+func writeClaudeCreds(file map[string]json.RawMessage, o *claudeOauth) {
+	var oauthMap map[string]json.RawMessage
 	_ = json.Unmarshal(file["claudeAiOauth"], &oauthMap)
 	if oauthMap == nil {
-		oauthMap = map[string]any{}
+		oauthMap = map[string]json.RawMessage{}
 	}
-	oauthMap["accessToken"] = o.AccessToken
-	oauthMap["refreshToken"] = o.RefreshToken
-	oauthMap["expiresAt"] = o.ExpiresAt
+	set := func(k string, v any) { b, _ := json.Marshal(v); oauthMap[k] = b }
+	set("accessToken", o.AccessToken)
+	set("refreshToken", o.RefreshToken)
+	set("expiresAt", o.ExpiresAt)
 	b, _ := json.Marshal(oauthMap)
 	file["claudeAiOauth"] = b
-	if out, err := json.Marshal(file); err == nil {
-		tmp := credsPath() + ".tmp"
-		if os.WriteFile(tmp, out, 0o600) == nil {
-			_ = os.Rename(tmp, credsPath())
-		}
+	out, err := json.Marshal(file)
+	if err != nil {
+		return
 	}
-	return &o, nil
+	tmp := credsPath() + ".tmp"
+	if os.WriteFile(tmp, out, 0o600) == nil {
+		_ = os.Rename(tmp, credsPath())
+	}
 }
 
 func refreshClaude(ctx context.Context, o *claudeOauth) error {
