@@ -66,18 +66,34 @@ Providers that aren't installed are simply hidden.
 
 ## How it works
 
+The code follows a layered (DDD-style) structure; dependencies point inwards only:
+
+```
+presentation ──► application ──► domain
+       │               ▲
+       └──► infrastructure (implements the application's ports)
+```
+
+| Layer | Package | What's in it |
+|---|---|---|
+| Domain | `internal/domain` | The rules, with no Windows/IO: usage types, which limit the pill shows, pace, notification policy, 7-day history, adaptive refresh schedule, preferences, version comparison. |
+| Application | `internal/application` | Use cases behind ports: refresh loop, notifications (held during fullscreen), history, update check, settings, the rows the pill draws. |
+| Infrastructure | `internal/infrastructure/…` | `providers` (Claude, Codex, Antigravity), `storage` (`%APPDATA%\Kota`), `win32` (Win32/COM bindings, taskbar discovery), `system` (autostart, installer, idle, active tool, fullscreen, theme), `github` (releases). |
+| Presentation | `internal/presentation/…` | `taskbar` (the native pills), `panel` (Wails window + the API the page calls), `toast` (notification balloons). |
+| Composition root | `main.go` | Builds the services and starts Wails. |
+
 Windows 11 has no API for third-party taskbar widgets (the weather widget is part of Explorer), so:
 
-| Part | File | Approach |
-|---|---|---|
-| Pill | `pill_windows.go` | A GDI-drawn native window, child of `Shell_TrayWnd`. It must be `WS_EX_LAYERED` (the Win11 taskbar is DirectComposition; a plain GDI child is invisible). |
-| Position | `uia_windows.go` | Finds the Start button with UI Automation (on its own thread — calling it from the pill's thread deadlocks with Explorer) and follows taskbar changes via `SetWinEventHook`. |
-| Explorer restarts | `pill_windows.go` | Re-created on the `TaskbarCreated` broadcast. |
-| Panel | `panel_windows.go` | The Wails (WebView2) window, a plain top-most popup shown above the pill. |
-| Data | `app.go`, `refresh.go`, `providers/` | Fetches all providers in parallel on an adaptive schedule. |
-| Multiple monitors | `pills_windows.go` | One pill per `Shell_SecondaryTrayWnd`. |
-| Installer | `install_windows.go` | The exe copies itself, creates the shortcut with `IShellLink` and an uninstall entry. |
-| History | `history.go` | Samples each limit at most every 10 min (sooner if it moves), kept 7 days. |
+- **Pill** — a GDI-drawn native window, child of `Shell_TrayWnd`. It must be `WS_EX_LAYERED`
+  (the Win11 taskbar is DirectComposition; a plain GDI child is invisible).
+- **Position** — the Start button is found with UI Automation, on its own thread (calling it from
+  the pill's thread deadlocks with Explorer); taskbar changes are followed via `SetWinEventHook`,
+  and the pill is re-created on the `TaskbarCreated` broadcast when Explorer restarts.
+- **Panel** — the Wails (WebView2) window, a plain top-most popup shown above the pill
+  (`frontend/dist`: `index.html`, `styles.css`, `app.js`, `chart.js`).
+- **Installer** — the exe copies itself, creates the shortcut with `IShellLink` and an uninstall entry.
+
+See [docs/architecture.md](docs/architecture.md) for the details.
 
 ## Build
 
@@ -92,7 +108,7 @@ go run ./cmd/probe                           # provider output as JSON, no UI
 Run a dev build with `--portable` to skip the install prompt. The icon is generated from
 `build/logo.svg`'s geometry by `build/makeicon.ps1`.
 
-Adding a provider: implement the `Provider` interface in `providers/` and register it in `providers.All()`.
+Adding a provider: implement it in `internal/infrastructure/providers` (it satisfies `application.UsageSource`) and register it in `providers.All()`.
 
 ## License
 
