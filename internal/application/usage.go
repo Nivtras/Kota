@@ -16,7 +16,7 @@ const (
 // UsageService fetches all providers and keeps the latest data. Listeners
 // (taskbar, panel, history, notifications) get every new result.
 type UsageService struct {
-	sources  []UsageSource
+	sources  func() []UsageSource // asked on every fetch: providers come and go
 	presence Presence
 
 	mu        sync.Mutex
@@ -28,7 +28,7 @@ type UsageService struct {
 	onTick    []func()
 }
 
-func NewUsageService(sources []UsageSource, presence Presence) *UsageService {
+func NewUsageService(sources func() []UsageSource, presence Presence) *UsageService {
 	return &UsageService{sources: sources, presence: presence, kick: make(chan struct{}, 1)}
 }
 
@@ -65,9 +65,10 @@ func (s *UsageService) Fetch() []domain.Usage {
 	s.fetching = ch
 	s.mu.Unlock()
 
-	out := make([]domain.Usage, len(s.sources))
+	srcs := s.sources()
+	out := make([]domain.Usage, len(srcs))
 	var wg sync.WaitGroup
-	for i, src := range s.sources {
+	for i, src := range srcs {
 		wg.Add(1)
 		go func(i int, src UsageSource) {
 			defer wg.Done()

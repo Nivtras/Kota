@@ -85,6 +85,22 @@ main[hidden] { display: none; }
   font: inherit; font-size: 11px; padding: 4px 10px; border-radius: 6px; cursor: pointer;
 }
 .link-btn:hover { background: var(--strong); }
+.cred { padding: 6px 0; }
+.cred + .cred { border-top: 1px solid var(--line); }
+.cred-head { display: flex; align-items: center; gap: 8px; }
+.cred-head .logo { width: 18px; height: 18px; }
+.cred-name { font-weight: 600; flex: 1; }
+.cred-state { color: var(--muted); font-size: 11px; }
+.cred-state.on { color: var(--ok); }
+.cred-row { display: flex; gap: 6px; margin: 6px 0 0 26px; }
+.cred-input {
+  flex: 1; min-width: 0; background: var(--pill); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; font: inherit; font-size: 11px; padding: 4px 8px; user-select: text;
+}
+.cred-input:focus { outline: 1px solid var(--accent); }
+.cred-hint { margin: 4px 0 0 26px; }
+.cred-hint a { color: var(--accent); }
+.cred-err { margin-left: 26px; }
 .slider-row .val { width: 48px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
 
 /* ---------- panel ---------- */

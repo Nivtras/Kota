@@ -186,7 +186,7 @@ func TestNotificationsHeldWhileBusy(t *testing.T) {
 
 func TestUsageFetchSharedByConcurrentCallers(t *testing.T) {
 	src := &slowSource{}
-	s := NewUsageService([]UsageSource{src}, &fakePresence{})
+	s := NewUsageService(func() []UsageSource { return []UsageSource{src} }, &fakePresence{})
 	got := 0
 	s.OnUsage(func([]domain.Usage) { got++ })
 	var wg sync.WaitGroup
@@ -200,5 +200,37 @@ func TestUsageFetchSharedByConcurrentCallers(t *testing.T) {
 	}
 	if len(s.Snapshot()) != 1 {
 		t.Error("snapshot")
+	}
+}
+
+type memSecrets map[string]string
+
+func (m memSecrets) Get(n string) string { return m[n] }
+func (m memSecrets) Set(n, v string) error {
+	if v == "" {
+		delete(m, n)
+	} else {
+		m[n] = v
+	}
+	return nil
+}
+
+func TestCredentials(t *testing.T) {
+	store := memSecrets{}
+	c := NewCredentialService(store, []KeyDef{{ID: "openrouter", Name: "OpenRouter", Secret: "or"}})
+	if l := c.List(); len(l) != 1 || l[0].Set {
+		t.Fatalf("list = %+v", l)
+	}
+	if err := c.Set("openrouter", "  \"sk-or-v1-abc\"\n"); err != nil || store["or"] != "sk-or-v1-abc" {
+		t.Fatalf("set: %v, stored %q", err, store["or"])
+	}
+	if !c.List()[0].Set {
+		t.Error("should be set")
+	}
+	if c.Set("openrouter", "two words") == nil || c.Set("nope", "k") == nil {
+		t.Error("bad input accepted")
+	}
+	if c.Clear("openrouter"); store["or"] != "" {
+		t.Error("clear")
 	}
 }

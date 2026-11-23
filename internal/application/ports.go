@@ -36,6 +36,12 @@ type AlertRepo interface {
 	Save(map[string]time.Time)
 }
 
+// SecretStore keeps API keys the user enters (encrypted at rest).
+type SecretStore interface {
+	Get(name string) string
+	Set(name, value string) error
+}
+
 // Notifier shows a notification to the user.
 type Notifier interface {
 	Notify(title, body string)

@@ -71,9 +71,14 @@ func newServices(notifier application.Notifier) panel.Services {
 	presence := system.Presence{}
 	settings := application.NewSettingsService(
 		storage.NewPreferencesStore(storage.Path("config.json")), system.Autostart{})
-	var sources []application.UsageSource
-	for _, p := range providers.All() {
-		sources = append(sources, p)
+	// Asked on every fetch, so a provider appears as soon as it is set up
+	// (e.g. an API key was added) and disappears when it goes away.
+	sources := func() []application.UsageSource {
+		var out []application.UsageSource
+		for _, p := range providers.All() {
+			out = append(out, p)
+		}
+		return out
 	}
 	usage := application.NewUsageService(sources, presence)
 	notes := application.NewNotificationService(settings,
@@ -87,13 +92,23 @@ func newServices(notifier application.Notifier) panel.Services {
 		Notifications: notes,
 		History:       hist,
 		Updates:       application.NewUpdateService(github.NewReleases(), settings),
+		Credentials:   application.NewCredentialService(storage.Secrets{}, keyProviders),
 	}
+}
+
+// keyProviders are the providers that work with a key the user enters.
+var keyProviders = []application.KeyDef{
+	{ID: "openrouter", Name: "OpenRouter", Secret: providers.OpenRouterSecret,
+		Hint: "An API key from openrouter.ai → Keys (starts with sk-or-).", URL: "https://openrouter.ai/settings/keys"},
+	{ID: "copilot", Name: "GitHub Copilot", Secret: providers.CopilotSecret,
+		Hint: "A GitHub token: the output of `gh auth token`, or a token with the read:user scope. Not needed if the GitHub CLI is signed in.",
+		URL:  "https://github.com/settings/tokens/new?scopes=read:user&description=Kota"},
 }
 
 // loadLogos reads the provider icons embedded with the frontend.
 func loadLogos() map[string][]byte {
 	out := map[string][]byte{}
-	for _, id := range []string{"claude", "codex", "antigravity"} {
+	for _, id := range []string{"claude", "codex", "antigravity", "gemini", "openrouter", "copilot", "cursor"} {
 		if b, err := assets.ReadFile("frontend/dist/logos/" + id + ".png"); err == nil {
 			out[id] = b
 		}

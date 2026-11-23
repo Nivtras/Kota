@@ -9,6 +9,10 @@ const LOGOS = {
   claude:      { img: 'logos/claude.png',      bg: '#d97757', ch: 'C' },
   antigravity: { img: 'logos/antigravity.png', bg: '#4f7cff', ch: 'A' },
   codex:       { img: 'logos/codex.png',       bg: '#10a37f', ch: 'X' },
+  gemini:      { img: 'logos/gemini.png',      bg: '#4285f4', ch: 'G' },
+  openrouter:  { img: 'logos/openrouter.png',  bg: '#6467f2', ch: 'O' },
+  copilot:     { img: 'logos/copilot.png',     bg: '#2b3137', ch: 'C' },
+  cursor:      { img: 'logos/cursor.png',      bg: '#1b1b1b', ch: 'C' },
 };
 function logoHTML(u) {
   const lg = logoOf(u);
@@ -284,8 +288,60 @@ function showSettings(on) {
   $('settings').hidden = !on;
   $('list').hidden = on;
   $('settingsBtn').classList.toggle('active', on);
-  if (on) renderSettings();
+  if (on) { renderSettings(); loadCredentials(); }
 }
+
+/* ---------- API keys ---------- */
+// Rendered on their own (not on every data refresh) so typing isn't lost.
+let creds = [], editingCred = null;
+async function loadCredentials() {
+  try { creds = (await api().GetCredentials()) || []; } catch { creds = []; }
+  renderCredentials();
+}
+function renderCredentials() {
+  $('credList').innerHTML = creds.map(c => {
+    const editing = !c.set || editingCred === c.id;
+    return `<div class="cred" data-id="${esc(c.id)}">
+      <div class="cred-head">
+        ${logoHTML({ id: c.id, name: c.name })}<span class="cred-name">${esc(c.name)}</span>
+        <span class="cred-state ${c.set ? 'on' : ''}">${c.set ? 'Key saved' : 'No key'}</span>
+      </div>
+      ${editing ? `
+        <div class="cred-row">
+          <input type="password" class="cred-input" placeholder="Paste API key" autocomplete="off" spellcheck="false">
+          <button class="link-btn cred-save">Save</button>
+          ${c.set ? '<button class="link-btn cred-cancel">Cancel</button>' : ''}
+        </div>
+        <div class="s-hint cred-hint">${esc(c.hint)} <a href="#" class="cred-get">Get a key</a></div>`
+      : `<div class="cred-row">
+          <button class="link-btn cred-replace">Replace</button>
+          <button class="link-btn cred-remove">Remove</button>
+        </div>`}
+      <div class="err cred-err"></div>
+    </div>`;
+  }).join('') || '<div class="s-hint">No providers need a key.</div>';
+}
+$('credList').addEventListener('click', async (e) => {
+  const row = e.target.closest('.cred');
+  if (!row) return;
+  const id = row.dataset.id;
+  if (e.target.closest('.cred-get')) { e.preventDefault(); api().OpenKeyPage(id); return; }
+  if (e.target.closest('.cred-replace')) { editingCred = id; renderCredentials(); focusCred(id); return; }
+  if (e.target.closest('.cred-cancel')) { editingCred = null; renderCredentials(); return; }
+  if (e.target.closest('.cred-remove')) { await api().ClearCredential(id); editingCred = null; loadCredentials(); return; }
+  if (e.target.closest('.cred-save')) {
+    const input = row.querySelector('.cred-input');
+    const err = await api().SetCredential(id, input.value);
+    input.value = '';
+    if (err) { row.querySelector('.cred-err').textContent = err; return; }
+    editingCred = null;
+    loadCredentials();
+  }
+});
+function focusCred(id) { const i = $('credList').querySelector(`.cred[data-id="${id}"] .cred-input`); if (i) i.focus(); }
+$('credList').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.classList.contains('cred-input')) e.target.closest('.cred').querySelector('.cred-save').click();
+});
 $('settingsBtn').onclick = () => showSettings($('settings').hidden);
 
 $('list').addEventListener('click', (e) => {

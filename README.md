@@ -3,7 +3,7 @@
 <h1 align="center">Kota</h1>
 
 <p align="center"><b>Your AI usage limits, right on the Windows taskbar.</b><br>
-Claude · Codex · Antigravity — one glance, no browser tabs.</p>
+Claude · Codex · Antigravity · Gemini CLI · OpenRouter · GitHub Copilot · Cursor — one glance, no browser tabs.</p>
 
 <p align="center"><img src="docs/pill.png" alt="Kota on the taskbar"></p>
 
@@ -40,23 +40,30 @@ Windows SmartScreen may warn because the exe isn't code-signed: *More info → R
 
 ### What it needs
 
-Sign in to the tools you use; Kota reads their existing local sign-in, nothing else:
+Sign in to the tools you use; Kota reads their existing local sign-in. Two providers work with a key
+you paste into **Settings → API keys** instead:
 
 | Provider | Where the data comes from |
 |---|---|
 | **Claude** | Claude Code's sign-in (`~/.claude/.credentials.json`, run `claude` → `/login`). Plan limits from Anthropic's usage endpoint; token totals from local Claude Code logs. |
 | **Codex** | The Codex app / CLI sign-in (`~/.codex/auth.json`, read-only). Limits from ChatGPT's usage endpoint; tokens from local session logs. |
 | **Antigravity** | The running Antigravity app (local language server), or the `agy` CLI when the app is closed. |
+| **Gemini CLI** | The CLI's Google sign-in (`~/.gemini/oauth_creds.json`, read-only; run `gemini` once). Daily quota per model tier (Pro / Flash / Flash Lite) from Code Assist. |
+| **OpenRouter** | Your API key (Settings → API keys). Key spending limit, prepaid credits and today / this week / this month spend from the documented `/api/v1/key` and `/credits` endpoints. |
+| **GitHub Copilot** | A GitHub token (Settings → API keys, `GH_TOKEN`, or a signed-in GitHub CLI). Monthly premium-request quota from Copilot's usage endpoint. |
+| **Cursor** | The Cursor app's sign-in (read-only from its local state database). Included usage for the billing cycle, Auto / API model shares and on-demand spend. |
 
 Providers that aren't installed are simply hidden.
 
 ## Privacy
 
-- Your tokens are only ever sent to the service they belong to (Anthropic, OpenAI, Google).
-  No analytics, no telemetry, no servers of ours.
+- Your tokens and keys are only ever sent to the service they belong to (Anthropic, OpenAI, Google,
+  OpenRouter, GitHub, Cursor). No analytics, no telemetry, no servers of ours.
+- API keys you enter are stored in `%APPDATA%\Kota\secrets.dat`, encrypted with Windows DPAPI for your
+  user account; they never appear in `config.json` or in logs.
 - Once a day Kota asks GitHub (`api.github.com`) whether a newer release exists, and shows a link
   if so. Nothing is downloaded automatically; you can turn the check off in settings.
-- Kota never writes to Codex's credentials. For Claude, an expired access token is refreshed the
+- Kota never writes to Codex's, Gemini CLI's or Cursor's credentials. For Claude, an expired access token is refreshed the
   same way Claude Code does it and written back with every other field preserved.
 - Settings, caches and the 7-day history live in `%APPDATA%\Kota`.
 

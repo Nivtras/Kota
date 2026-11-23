@@ -4,6 +4,7 @@ package panel
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -33,6 +34,7 @@ type Services struct {
 	Notifications *application.NotificationService
 	History       *application.HistoryService
 	Updates       *application.UpdateService
+	Credentials   *application.CredentialService
 }
 
 // API connects the services to the taskbar pills and the panel. Its
@@ -203,6 +205,36 @@ func (a *API) SetAllMonitors(on bool) {
 	a.svc.Settings.SetAllMonitors(on)
 	if a.pill != nil {
 		a.pill.SetMulti(on)
+	}
+}
+
+// GetCredentials lists the providers that need a key, and whether one is set.
+func (a *API) GetCredentials() []application.Credential { return a.svc.Credentials.List() }
+
+// SetCredential stores a provider's key and refreshes, so its card appears.
+// It returns "" or an error message.
+func (a *API) SetCredential(id, key string) string {
+	if err := a.svc.Credentials.Set(id, key); err != nil {
+		return err.Error()
+	}
+	go a.svc.Usage.Fetch()
+	return ""
+}
+
+// ClearCredential removes a provider's key.
+func (a *API) ClearCredential(id string) {
+	if a.svc.Credentials.Clear(id) == nil {
+		go a.svc.Usage.Fetch()
+	}
+}
+
+// OpenKeyPage opens the page where a provider's key is created.
+func (a *API) OpenKeyPage(id string) {
+	for _, c := range a.svc.Credentials.List() {
+		if c.ID == id && strings.HasPrefix(c.URL, "https://") {
+			runtime.BrowserOpenURL(a.ctx, c.URL)
+			a.panel.hide()
+		}
 	}
 }
 

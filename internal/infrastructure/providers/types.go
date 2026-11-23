@@ -29,7 +29,7 @@ type installer interface{ Installed() bool }
 // All returns the providers present on this machine, in display order.
 func All() []Provider {
 	var out []Provider
-	for _, p := range []Provider{&Claude{}, &Codex{}, &Antigravity{}} {
+	for _, p := range []Provider{&Claude{}, &Codex{}, &Antigravity{}, &Gemini{}, &OpenRouter{}, &Copilot{}, &Cursor{}} {
 		if i, ok := p.(installer); ok && !i.Installed() {
 			continue
 		}
