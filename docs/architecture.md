@@ -9,9 +9,10 @@ presentation ──► application ──► domain
        └──► infrastructure (implements application's ports)
 ```
 
-`domain` imports nothing of Kota's; `application` imports only `domain`; infrastructure and
-presentation never import each other's internals except through `main.go`'s wiring (the panel
-uses `win32` for window handling and `taskbar.Has` to know where the pills are).
+`domain` imports nothing of Kota's; `application` imports only `domain`; infrastructure never
+imports application or presentation. Presentation uses a few infrastructure pieces directly:
+`win32` for window handling, `storage.Log` for diagnostics and `system.WatchActiveTool` to feed
+the "tool in use" into the settings service.
 
 ## Layout
 
