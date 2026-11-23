@@ -298,3 +298,23 @@ func TaskbarAt(pt Point) uintptr {
 	}
 	return primary
 }
+
+// ---------- monitors ----------
+
+var (
+	pMonitorFromPoint = User32.NewProc("MonitorFromPoint")
+	pGetDpiForMonitor = windows.NewLazySystemDLL("shcore.dll").NewProc("GetDpiForMonitor")
+)
+
+// MonitorScale is the scale factor (1.0 = 96 DPI) of the monitor at pt.
+// Prefer it over DPIScale for windows of other processes: Explorer's
+// secondary taskbars report 96 DPI whatever their monitor's scale is.
+func MonitorScale(pt Point) float64 {
+	const monitorDefaultToNearest = 2
+	m, _, _ := pMonitorFromPoint.Call(uintptr(uint32(pt.X))|uintptr(uint32(pt.Y))<<32, monitorDefaultToNearest)
+	var x, y uint32
+	if hr, _, _ := pGetDpiForMonitor.Call(m, 0, uintptr(unsafe.Pointer(&x)), uintptr(unsafe.Pointer(&y))); hr != 0 || x == 0 {
+		return 1
+	}
+	return float64(x) / 96
+}

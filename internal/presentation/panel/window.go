@@ -78,13 +78,15 @@ func (pn *panel) show(pill win32.Rect) {
 	if h == 0 {
 		return
 	}
-	// The taskbar of the monitor whose pill was clicked.
-	tb := win32.TaskbarAt(win32.Pt((pill.L+pill.R)/2, (pill.T+pill.B)/2))
+	// The taskbar of the monitor whose pill was clicked, at that monitor's
+	// scale (not the taskbar window's DPI: secondary taskbars report 96).
+	center := win32.Pt((pill.L+pill.R)/2, (pill.T+pill.B)/2)
+	tb := win32.TaskbarAt(center)
 	tbr, ok := win32.WindowRect(tb)
 	if !ok {
 		return
 	}
-	s := win32.DPIScale(tb)
+	s := win32.MonitorScale(win32.Pt((tbr.L+tbr.R)/2, (tbr.T+tbr.B)/2))
 	px := func(v int) int32 { return int32(float64(v)*s + 0.5) }
 	w, ht := px(Width), px(Height)
 	x := pill.R - w // right-aligned with the pill
@@ -96,7 +98,20 @@ func (pn *panel) show(pill win32.Rect) {
 	pn.mu.Lock()
 	pn.visible, pn.shownAt = true, time.Now()
 	pn.mu.Unlock()
-	win32.SetWindowPos.Call(h, win32.HwndTopmost, uintptr(x), uintptr(y), uintptr(w), uintptr(ht), win32.SwpShowWindow)
+	place := func() {
+		win32.SetWindowPos.Call(h, win32.HwndTopmost, uintptr(x), uintptr(y), uintptr(w), uintptr(ht), win32.SwpShowWindow)
+	}
+	place()
+	// Moving to a monitor with another DPI makes Windows (and WebView2)
+	// rescale the window to the new DPI, which shifts it; put it back where
+	// it belongs once that has settled.
+	for i := 0; i < 5; i++ {
+		if r, ok := win32.WindowRect(h); ok && r.L == x && r.T == y && r.W() == w && r.H() == ht {
+			break
+		}
+		time.Sleep(40 * time.Millisecond)
+		place()
+	}
 	win32.ForceForeground(h)
 	if pn.onShown != nil {
 		pn.onShown()

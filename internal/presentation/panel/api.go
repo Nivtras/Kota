@@ -12,6 +12,7 @@ import (
 	"kota/internal/domain"
 	"kota/internal/infrastructure/storage"
 	"kota/internal/infrastructure/system"
+	"kota/internal/infrastructure/win32"
 	"kota/internal/presentation/taskbar"
 	"kota/internal/presentation/toast"
 )
@@ -100,14 +101,15 @@ func (a *API) updatePill() {
 }
 
 // onPillMenu handles the pill's right-click menu.
-func (a *API) onPillMenu(cmd int) {
+// pill is the pill the menu was opened on, so the panel opens on its monitor.
+func (a *API) onPillMenu(cmd int, pill win32.Rect) {
 	switch cmd {
 	case taskbar.MenuOpen:
-		a.panel.show(a.pill.ScreenRect())
+		a.panel.show(pill)
 	case taskbar.MenuRefresh:
 		a.svc.Usage.Fetch()
 	case taskbar.MenuSettings:
-		a.panel.show(a.pill.ScreenRect())
+		a.panel.show(pill)
 		runtime.EventsEmit(a.ctx, eventSettings)
 	case taskbar.MenuResetPosition:
 		a.ResetPillPosition()

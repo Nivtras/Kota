@@ -22,7 +22,7 @@ type Options struct {
 
 	OnClick func(pill win32.Rect)           // screen rect of the clicked pill
 	OnMoved func(anchor string, offset int) // after the user dragged a pill
-	OnMenu  func(cmd int)                   // right-click menu choice
+	OnMenu  func(cmd int, pill win32.Rect)  // menu choice + the pill it was opened on
 }
 
 // Pills is the set of taskbar pills.

@@ -71,7 +71,7 @@ type pill struct {
 
 	onClick func(screen win32.Rect)         // called on its own goroutine
 	onMoved func(anchor string, offset int) // after a drag; own goroutine
-	onMenu  func(cmd int)                   // right-click menu choice; own goroutine
+	onMenu  func(cmd int, pill win32.Rect)  // right-click menu choice + this pill's rect; own goroutine
 	logos   map[string][]byte               // provider id → PNG
 	icons   map[iconKey]uintptr
 
@@ -670,7 +670,7 @@ func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 		host := p.host
 		p.mu.Unlock()
 		if cmd := showPillMenu(host); cmd != 0 && p.onMenu != nil {
-			go p.onMenu(cmd)
+			go p.onMenu(cmd, p.screenRect())
 		}
 		return 0
 	case win32.WmLButtonUp:
