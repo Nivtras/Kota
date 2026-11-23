@@ -89,3 +89,9 @@ func setAutostartPath(exe string) error {
 	defer k.Close()
 	return k.SetStringValue(runValueName, `"`+exe+`"`)
 }
+
+// Autostart is "Start with Windows" as an object (application.Autostart).
+type Autostart struct{}
+
+func (Autostart) Enabled() bool     { return AutostartEnabled() }
+func (Autostart) Set(on bool) error { return SetAutostart(on) }

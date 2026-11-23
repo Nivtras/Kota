@@ -794,7 +794,7 @@ func (p *pill) paint(hwnd uintptr) {
 			ty := y + (rowH-th)/2
 			fillRound(mdc, win32.R(x, ty, barR, ty+th), colTrack, colTrack, th)
 			if fw := int32(float64(barR-x) * r.Fill / 100); fw > 0 {
-				fillRound(mdc, win32.R(x, ty, x+max(fw, th), ty+th), r.Color, r.Color, th)
+				fillRound(mdc, win32.R(x, ty, x+max(fw, th), ty+th), levelColor(r.Level), levelColor(r.Level), th)
 			}
 			// Pace marker: how much of the window's time has passed.
 			if r.Marker >= 0 {

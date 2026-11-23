@@ -26,3 +26,9 @@ func NewerVersion(tag, cur string) bool {
 	}
 	return false
 }
+
+// Release is a published version newer than the running one.
+type Release struct {
+	Version string `json:"version"`
+	URL     string `json:"url"`
+}

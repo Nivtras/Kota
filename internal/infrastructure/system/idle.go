@@ -27,3 +27,9 @@ func UserIdle() time.Duration {
 	now, _, _ := pGetTickCount.Call()
 	return time.Duration(uint32(now)-lii.Time) * time.Millisecond // uint32 wrap-safe
 }
+
+// Presence reports what the user is doing (application.Presence).
+type Presence struct{}
+
+func (Presence) Idle() time.Duration { return UserIdle() }
+func (Presence) Busy() bool          { return UserBusy() }

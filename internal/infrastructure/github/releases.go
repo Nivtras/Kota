@@ -12,12 +12,6 @@ import (
 	"kota/internal/domain"
 )
 
-// Release is a published release newer than the running version.
-type Release struct {
-	Version string `json:"version"`
-	URL     string `json:"url"`
-}
-
 // Releases reads repo's "latest release".
 type Releases struct {
 	API     string // e.g. https://api.github.com/repos/owner/name/releases/latest
@@ -35,7 +29,7 @@ func NewReleases() *Releases {
 // Newer returns the latest release if it is newer than Current, else nil.
 // Drafts, pre-releases and non-GitHub links are ignored; a non-200 answer
 // (no release yet, rate limited, …) is not an error.
-func (r *Releases) Newer(ctx context.Context) (*Release, error) {
+func (r *Releases) Newer(ctx context.Context) (*domain.Release, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, r.API, nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", buildinfo.Name+"/"+buildinfo.Version)
@@ -59,5 +53,5 @@ func (r *Releases) Newer(ctx context.Context) (*Release, error) {
 	if !domain.NewerVersion(v.Tag, r.Current) || !strings.HasPrefix(v.URL, "https://github.com/") {
 		return nil, nil
 	}
-	return &Release{Version: strings.TrimPrefix(v.Tag, "v"), URL: v.URL}, nil
+	return &domain.Release{Version: strings.TrimPrefix(v.Tag, "v"), URL: v.URL}, nil
 }

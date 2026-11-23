@@ -2,109 +2,89 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"time"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"kota/internal/application"
 	"kota/internal/domain"
 	"kota/internal/infrastructure/storage"
 	"kota/internal/infrastructure/system"
 	"kota/internal/infrastructure/win32"
-	"sync"
-	"time"
-
-	"kota/internal/infrastructure/providers"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const (
 	windowTitle   = "Kota"
-	repaintEvery  = 30 * time.Second // keep reset countdowns on the pill fresh
 	eventUsage    = "usage"          // Go → UI: new provider data
 	eventShown    = "panel:shown"    // Go → UI: panel became visible
 	eventSettings = "panel:settings" // Go → UI: show the settings view
 	eventUpdate   = "update"         // Go → UI: a newer release (or null)
-	fetchDeadline = 30 * time.Second
 )
 
-type App struct {
-	ctx   context.Context
-	cfgMu sync.Mutex // guards cfg writes from the pill's drag callback
-	cfg   config
-	pill  *pillSet // primary pill + one per secondary taskbar
-	panel *panel
-
-	dataMu    sync.Mutex
-	last      []domain.Usage
-	fetching  chan struct{} // non-nil while a fetch runs; closed when done
-	fetchedAt time.Time
-	kick      chan struct{} // asks the refresh loop to fetch now
-
-	notifier *notifier
-	hist     *history
-	update   *UpdateInfo // newer release, if any; guarded by dataMu
-	active   string      // provider of the AI tool in use (follow mode); guarded by cfgMu
+// Services are the application layer's use cases the UI works with.
+type Services struct {
+	Settings      *application.SettingsService
+	Usage         *application.UsageService
+	Notifications *application.NotificationService
+	History       *application.HistoryService
+	Updates       *application.UpdateService
 }
 
-func NewApp() *App {
-	cfg := loadConfig()
-	n := newNotifier(storage.NewAlertStore(storage.Path("notify-state.json")))
-	n.setLevels(cfg.NotifyWarn, cfg.NotifyCrit)
-	hist := newHistory(storage.NewHistoryStore(storage.Path("history.json")))
-	return &App{cfg: cfg, panel: &panel{}, notifier: n, hist: hist, kick: make(chan struct{}, 1)}
+// App connects the services to the taskbar pill and the panel; the methods
+// below are bound to the panel page.
+type App struct {
+	ctx   context.Context
+	svc   Services
+	logos map[string][]byte
+	pill  *pillSet // primary pill + one per secondary taskbar
+	panel *panel
+}
+
+func NewApp(svc Services, logos map[string][]byte) *App {
+	return &App{svc: svc, logos: logos, panel: &panel{}}
 }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.panel.onShown = func() {
 		runtime.EventsEmit(ctx, eventShown)
-		a.refreshIfStale(domain.StaleOnOpen)
+		a.svc.Usage.RefreshIfStale(domain.StaleOnOpen)
 	}
+	p := a.svc.Settings.Prefs()
 	offset := defaultOffset
-	if a.cfg.PillOffset != nil {
-		offset = *a.cfg.PillOffset
+	if p.PillOffset != nil {
+		offset = *p.PillOffset
 	}
-	primary := newPill(a.cfg.CompactWidth, a.cfg.PillAnchor, offset, loadLogos(),
+	primary := newPill(domain.ClampWidth(p.CompactWidth), p.PillAnchor, offset, a.logos,
 		func(r win32.Rect) { a.panel.toggle(r) },
 		func(anchor string, off int) { // the user dragged a pill
-			a.cfgMu.Lock()
-			a.cfg.PillAnchor, a.cfg.PillOffset = anchor, &off
-			saveConfig(a.cfg)
-			a.cfgMu.Unlock()
+			a.svc.Settings.SetPosition(anchor, &off)
 			a.pill.setPosition(anchor, off) // keep the other monitors in step
 		})
 	primary.onMenu = a.onPillMenu
-	a.pill = newPillSet(primary, a.cfg.AllMonitors)
+	a.pill = newPillSet(primary, p.AllMonitors)
 	theToaster.onClick = func() { a.panel.show(a.pill.screenRect()) } // click on a notification
-	go a.refreshLoop()
-	go a.updateLoop()
+
+	a.svc.Usage.OnUsage(func(items []domain.Usage) {
+		a.updatePill()
+		runtime.EventsEmit(ctx, eventUsage, items)
+	})
+	a.svc.Usage.OnTick(a.updatePill)
+	a.svc.Settings.OnChange(a.updatePill)
+	a.svc.Updates.OnChange(func(r *domain.Release) { runtime.EventsEmit(ctx, eventUpdate, r) })
+	go a.svc.Usage.Run()
+	go a.svc.Updates.Run()
 	go system.WatchActiveTool(
-		func() bool { a.cfgMu.Lock(); defer a.cfgMu.Unlock(); return a.cfg.FollowActive },
-		func(id string) {
-			a.cfgMu.Lock()
-			a.active = id
-			a.cfgMu.Unlock()
-			a.updatePill()
-		})
+		func() bool { return a.svc.Settings.Prefs().FollowActive },
+		a.svc.Settings.SetActive)
 }
 
-// SetFollowActive turns follow mode on or off: the pill shows the AI tool
-// in use first.
-func (a *App) SetFollowActive(on bool) {
-	a.cfgMu.Lock()
-	a.cfg.FollowActive = on
-	saveConfig(a.cfg)
-	a.cfgMu.Unlock()
-	a.updatePill()
-}
+func (a *App) domReady(ctx context.Context) { go a.panel.attach(windowTitle) }
 
-// SetAllMonitors shows the pill on every monitor's taskbar, or only on the
-// main one.
-func (a *App) SetAllMonitors(on bool) {
-	a.cfgMu.Lock()
-	a.cfg.AllMonitors = on
-	saveConfig(a.cfg)
-	a.cfgMu.Unlock()
+func (a *App) updatePill() {
 	if a.pill != nil {
-		a.pill.setMulti(on)
+		rows := application.PillRows(a.svc.Usage.Snapshot(), a.svc.Settings.Prefs(), a.svc.Settings.Active(), time.Now())
+		a.pill.setRows(rows)
 	}
 }
 
@@ -114,7 +94,7 @@ func (a *App) onPillMenu(cmd int) {
 	case MenuOpen:
 		a.panel.show(a.pill.screenRect())
 	case MenuRefresh:
-		a.fetch()
+		a.svc.Usage.Fetch()
 	case MenuSettings:
 		a.panel.show(a.pill.screenRect())
 		runtime.EventsEmit(a.ctx, eventSettings)
@@ -125,180 +105,25 @@ func (a *App) onPillMenu(cmd int) {
 	}
 }
 
-func (a *App) domReady(ctx context.Context) { go a.panel.attach(windowTitle) }
-
-// refreshLoop owns data refresh, so the pill stays current even while the
-// panel (web view) is hidden.
-//
-// The delay adapts (refresh.go): every 2 min while the user is active,
-// every 15 min while idle or locked, right after a limit resets, and at
-// once when the user comes back from being idle.
-func (a *App) refreshLoop() {
-	repaint := time.NewTicker(repaintEvery)
-	defer repaint.Stop()
-	var nextAt time.Time
-	fetchNow := func() {
-		a.fetch()
-		nextAt = time.Now().Add(domain.RefreshDelay(system.UserIdle(), a.snapshot(), time.Now()))
-	}
-	fetchNow()
-	wasIdle := false
-	for {
-		timer := time.NewTimer(max(time.Until(nextAt), 0))
-		select {
-		case <-timer.C:
-			fetchNow()
-		case <-a.kick:
-			timer.Stop()
-			fetchNow()
-		case <-repaint.C:
-			timer.Stop()
-			idle := system.UserIdle() >= domain.IdleAfter
-			if wasIdle && !idle {
-				fetchNow() // back at the keyboard: show fresh numbers
-			} else {
-				a.updatePill()
-			}
-			wasIdle = idle
-		}
-	}
-}
-
-// refreshIfStale asks the refresh loop to fetch now when the data is older
-// than d (e.g. the panel was just opened).
-func (a *App) refreshIfStale(d time.Duration) {
-	a.dataMu.Lock()
-	stale := time.Since(a.fetchedAt) > d
-	a.dataMu.Unlock()
-	if stale {
-		select {
-		case a.kick <- struct{}{}:
-		default:
-		}
-	}
-}
-
-// fetch queries all providers in parallel. Concurrent callers share one run.
-func (a *App) fetch() []domain.Usage {
-	a.dataMu.Lock()
-	if ch := a.fetching; ch != nil {
-		a.dataMu.Unlock()
-		<-ch
-		return a.snapshot()
-	}
-	ch := make(chan struct{})
-	a.fetching = ch
-	a.dataMu.Unlock()
-
-	ps := providers.All()
-	out := make([]domain.Usage, len(ps))
-	var wg sync.WaitGroup
-	for i, p := range ps {
-		wg.Add(1)
-		go func(i int, p providers.Provider) {
-			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), fetchDeadline)
-			defer cancel()
-			out[i] = p.Fetch(ctx)
-		}(i, p)
-	}
-	wg.Wait()
-
-	a.dataMu.Lock()
-	a.last, a.fetching, a.fetchedAt = out, nil, time.Now()
-	a.dataMu.Unlock()
-	close(ch)
-
-	a.hist.record(out, time.Now())
-	a.updatePill()
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, eventUsage, out)
-	}
-	// Alerts are computed every fetch (so state stays current) but only shown
-	// when notifications are on.
-	alerts := a.notifier.check(out, time.Now())
-	a.cfgMu.Lock()
-	off := a.cfg.NotifyOff
-	a.cfgMu.Unlock()
-	if !off {
-		for _, al := range alerts {
-			notifyUser(al.Title, al.Body)
-		}
-	}
-	return out
-}
-
-// SetNotifications turns usage notifications on or off.
-func (a *App) SetNotifications(on bool) {
-	a.cfgMu.Lock()
-	a.cfg.NotifyOff = !on
-	saveConfig(a.cfg)
-	a.cfgMu.Unlock()
-}
-
-// SetNotifyLevels sets the warning and critical thresholds (% used) and
-// returns the values actually stored (kept 50 ≤ warn < critical ≤ 100).
-func (a *App) SetNotifyLevels(warn, critical int) []int {
-	warn, critical = domain.NormLevels(warn, critical)
-	a.cfgMu.Lock()
-	a.cfg.NotifyWarn, a.cfg.NotifyCrit = warn, critical
-	saveConfig(a.cfg)
-	a.cfgMu.Unlock()
-	a.notifier.setLevels(warn, critical)
-	return []int{warn, critical}
-}
-
-// TestNotification shows a sample notification (settings button).
-func (a *App) TestNotification() {
-	a.cfgMu.Lock()
-	w, c := domain.NormLevels(a.cfg.NotifyWarn, a.cfg.NotifyCrit)
-	a.cfgMu.Unlock()
-	notifyUser("Kota notifications are on",
-		fmt.Sprintf("You'll be told at %d%% and %d%% of a limit, and when it's available again.", w, c))
-}
-
-func (a *App) snapshot() []domain.Usage {
-	a.dataMu.Lock()
-	defer a.dataMu.Unlock()
-	return a.last
-}
-
-func (a *App) updatePill() {
-	if a.pill != nil {
-		s := a.GetSettings()
-		a.cfgMu.Lock()
-		s.active = a.active
-		a.cfgMu.Unlock()
-		a.pill.setRows(buildPillRows(a.snapshot(), s, time.Now()))
-	}
-}
-
-// ---------- bound to the UI ----------
+// ---------- bound to the panel page ----------
 
 // GetUsage returns the latest data (fetching once if there is none yet).
-func (a *App) GetUsage() []domain.Usage {
-	if d := a.snapshot(); d != nil {
-		return d
-	}
-	return a.fetch()
+func (a *App) GetUsage() []domain.Usage { return a.svc.Usage.Latest() }
+
+// Refresh fetches fresh data now.
+func (a *App) Refresh() []domain.Usage { return a.svc.Usage.Fetch() }
+
+// GetHistory returns the last 7 days of the charted limits per provider.
+func (a *App) GetHistory() []domain.ProviderHistory {
+	return a.svc.History.Charts(a.svc.Usage.Snapshot())
 }
 
 // GetUpdate returns a newer release, or nil.
-func (a *App) GetUpdate() *UpdateInfo {
-	a.dataMu.Lock()
-	defer a.dataMu.Unlock()
-	return a.update
-}
-
-func (a *App) emitUpdate() {
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, eventUpdate, a.GetUpdate())
-	}
-}
+func (a *App) GetUpdate() *domain.Release { return a.svc.Updates.Current() }
 
 // OpenUpdate opens the newer release's page in the browser.
 func (a *App) OpenUpdate() {
-	if u := a.GetUpdate(); u != nil && a.ctx != nil {
+	if u := a.svc.Updates.Current(); u != nil {
 		runtime.BrowserOpenURL(a.ctx, u.URL)
 		a.panel.hide()
 	}
@@ -306,38 +131,22 @@ func (a *App) OpenUpdate() {
 
 // SetUpdateCheck turns the daily release check on or off.
 func (a *App) SetUpdateCheck(on bool) {
-	a.cfgMu.Lock()
-	a.cfg.UpdateCheckOff = !on
-	saveConfig(a.cfg)
-	a.cfgMu.Unlock()
+	a.svc.Settings.SetUpdateCheck(on)
 	if !on {
-		a.dataMu.Lock()
-		a.update = nil
-		a.dataMu.Unlock()
-		a.emitUpdate()
+		a.svc.Updates.Clear()
 	}
 }
 
-// GetHistory returns the last 7 days of the charted limits per provider.
-func (a *App) GetHistory() []domain.ProviderHistory {
-	return a.hist.forProviders(a.snapshot(), time.Now())
-}
+// GetSettings returns the settings view.
+func (a *App) GetSettings() application.Settings { return a.svc.Settings.View() }
 
-// Refresh fetches fresh data now.
-func (a *App) Refresh() []domain.Usage { return a.fetch() }
-
-// HidePanel closes the panel (blur, Esc, collapse button).
-func (a *App) HidePanel() { a.panel.hideFromUI() }
+// SaveSettings stores the taskbar providers and display mode (the width is
+// saved through SetCompactWidth).
+func (a *App) SaveSettings(s application.Settings) { a.svc.Settings.SaveDisplay(s.Taskbar, s.Display) }
 
 // SetCompactWidth resizes the taskbar pill (logical px); save=true persists it.
 func (a *App) SetCompactWidth(w int, save bool) {
-	w = domain.ClampWidth(w)
-	a.cfgMu.Lock()
-	a.cfg.CompactWidth = w
-	if save {
-		saveConfig(a.cfg)
-	}
-	a.cfgMu.Unlock()
+	w = a.svc.Settings.SetWidth(w, save)
 	if a.pill != nil {
 		a.pill.setWidth(w)
 	}
@@ -345,10 +154,7 @@ func (a *App) SetCompactWidth(w int, save bool) {
 
 // ResetPillPosition puts the pill back right before the Start button.
 func (a *App) ResetPillPosition() {
-	a.cfgMu.Lock()
-	a.cfg.PillAnchor, a.cfg.PillOffset = "", nil
-	saveConfig(a.cfg)
-	a.cfgMu.Unlock()
+	a.svc.Settings.SetPosition("", nil)
 	if a.pill != nil {
 		a.pill.setPosition(anchorStart, defaultOffset)
 	}
@@ -356,72 +162,38 @@ func (a *App) ResetPillPosition() {
 
 // SetAutostart turns "Start with Windows" on or off; returns the new state.
 func (a *App) SetAutostart(on bool) bool {
-	if err := system.SetAutostart(on); err != nil {
+	state, err := a.svc.Settings.SetAutostart(on)
+	if err != nil {
 		storage.Log("autostart: %v", err)
 	}
-	return system.AutostartEnabled()
+	return state
 }
 
-// Settings are the user's display preferences, edited in the panel.
-type Settings struct {
-	Taskbar   []string `json:"taskbar"`  // provider IDs shown on the taskbar (max 2)
-	Display   string   `json:"display"`  // "used" | "remaining"
-	Width     int      `json:"width"`    // taskbar pill width, logical px
-	MinWidth  int      `json:"minWidth"` // slider bounds (read-only)
-	MaxWidth  int      `json:"maxWidth"`
-	Autostart bool     `json:"autostart"` // read-only here; changed via SetAutostart
-	Notify    bool     `json:"notify"`    // read-only here; changed via SetNotifications
-	Follow    bool     `json:"follow"`    // show the tool in use first; changed via SetFollowActive
-	Multi     bool     `json:"multi"`     // pill on every monitor's taskbar; changed via SetAllMonitors
-	Update    bool     `json:"update"`    // daily release check; changed via SetUpdateCheck
-	Warn      int      `json:"warn"`      // notification thresholds; changed via SetNotifyLevels
-	Critical  int      `json:"critical"`
+// SetNotifications turns usage notifications on or off.
+func (a *App) SetNotifications(on bool) { a.svc.Settings.SetNotifications(on) }
 
-	active string // provider of the app in use (follow mode), not sent to the UI
+// SetNotifyLevels sets the warning and critical thresholds (% used) and
+// returns the values kept.
+func (a *App) SetNotifyLevels(warn, critical int) []int {
+	w, c := a.svc.Settings.SetNotifyLevels(warn, critical)
+	return []int{w, c}
 }
 
-func (a *App) GetSettings() Settings {
-	s := Settings{
-		Taskbar: a.cfg.Taskbar, Display: a.cfg.Display,
-		Width: domain.ClampWidth(a.cfg.CompactWidth), MinWidth: domain.MinWidth, MaxWidth: domain.MaxWidth,
-		Autostart: system.AutostartEnabled(),
-		Notify:    !a.cfg.NotifyOff,
-		Follow:    a.cfg.FollowActive,
-		Multi:     a.cfg.AllMonitors,
-		Update:    !a.cfg.UpdateCheckOff,
+// TestNotification shows a sample notification (settings button).
+func (a *App) TestNotification() { a.svc.Notifications.Test() }
+
+// SetFollowActive turns follow mode on or off.
+func (a *App) SetFollowActive(on bool) { a.svc.Settings.SetFollowActive(on) }
+
+// SetAllMonitors shows the pill on every monitor's taskbar, or only the main one.
+func (a *App) SetAllMonitors(on bool) {
+	a.svc.Settings.SetAllMonitors(on)
+	if a.pill != nil {
+		a.pill.setMulti(on)
 	}
-	s.Warn, s.Critical = domain.NormLevels(a.cfg.NotifyWarn, a.cfg.NotifyCrit)
-	if s.Display != "remaining" {
-		s.Display = "used"
-	}
-	return s
 }
 
-// SaveSettings stores the taskbar providers and display mode
-// (the width is saved through SetCompactWidth).
-func (a *App) SaveSettings(s Settings) {
-	if len(s.Taskbar) > 2 {
-		s.Taskbar = s.Taskbar[:2]
-	}
-	if s.Display != "remaining" {
-		s.Display = "used"
-	}
-	a.cfgMu.Lock()
-	a.cfg.Taskbar, a.cfg.Display = s.Taskbar, s.Display
-	saveConfig(a.cfg)
-	a.cfgMu.Unlock()
-	a.updatePill()
-}
+// HidePanel closes the panel (blur, Esc, collapse button).
+func (a *App) HidePanel() { a.panel.hideFromUI() }
 
 func (a *App) Quit() { runtime.Quit(a.ctx) }
-
-// loadLogos reads the provider icons embedded with the frontend.
-func loadLogos() map[string][]byte {
-	out := map[string][]byte{}
-	for _, id := range []string{"claude", "codex", "antigravity"} {
-		if b, err := assets.ReadFile("frontend/dist/logos/" + id + ".png"); err == nil {
-			out[id] = b
-		}
-	}
-	return out
-}

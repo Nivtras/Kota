@@ -8,9 +8,7 @@ package main
 // the widget doesn't add a permanent tray icon.
 
 import (
-	"kota/internal/domain"
 	"kota/internal/infrastructure/storage"
-	"kota/internal/infrastructure/system"
 	"kota/internal/infrastructure/win32"
 	"os"
 	"sync"
@@ -131,70 +129,16 @@ func (t *toaster) trayMessage(lp uintptr) {
 	}
 }
 
-// notifyUser shows a notification (no-op until the pill window exists).
-// While a fullscreen app, game or presentation is running, notifications
-// are held and shown once it ends.
-func notifyUser(title, body string) {
+// balloons shows notifications through the pill's host window
+// (application.Notifier). Before the pill exists it does nothing.
+type balloons struct{}
+
+func (balloons) Notify(title, body string) {
 	if thePill == nil {
 		return
 	}
-	if system.UserBusy() {
-		holdNotification(title, body)
-		return
-	}
-	showNow(title, body)
-}
-
-func showNow(title, body string) {
 	thePill.mu.Lock()
 	host := thePill.host
 	thePill.mu.Unlock()
 	theToaster.show(host, title, body)
-}
-
-var held struct {
-	sync.Mutex
-	items    []domain.Alert
-	watching bool
-}
-
-const maxHeld = 4
-
-func holdNotification(title, body string) {
-	held.Lock()
-	defer held.Unlock()
-	for i, a := range held.items {
-		if a.Title == title { // a newer reading of the same thing
-			held.items = append(held.items[:i], held.items[i+1:]...)
-			break
-		}
-	}
-	held.items = append(held.items, domain.Alert{Title: title, Body: body})
-	if len(held.items) > maxHeld {
-		held.items = held.items[len(held.items)-maxHeld:]
-	}
-	if !held.watching {
-		held.watching = true
-		go flushWhenFree()
-	}
-}
-
-func flushWhenFree() {
-	for range time.Tick(10 * time.Second) {
-		if system.UserBusy() {
-			continue
-		}
-		held.Lock()
-		items := held.items
-		held.items, held.watching = nil, false
-		held.Unlock()
-		// One balloon at a time: a new one replaces the previous.
-		for i, a := range items {
-			if i > 0 {
-				time.Sleep(6 * time.Second)
-			}
-			showNow(a.Title, a.Body)
-		}
-		return
-	}
 }
