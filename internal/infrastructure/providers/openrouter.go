@@ -110,9 +110,11 @@ func openRouterResult(k openRouterKey, c *openRouterCredits, now time.Time) remo
 		}
 		bars = append(bars, b)
 	}
-	if c != nil && c.Data.TotalCredits > 0 {
-		bars = append(bars, domain.Bar{Label: "Credits", UsedPct: clamp(100 * c.Data.TotalUsage / c.Data.TotalCredits),
-			Tooltip: usd(c.Data.TotalUsage) + " of " + usd(c.Data.TotalCredits) + " in credits used"})
+	if c != nil {
+		if c.Data.TotalCredits > 0 {
+			bars = append(bars, domain.Bar{Label: "Credits", UsedPct: clamp(100 * c.Data.TotalUsage / c.Data.TotalCredits),
+				Tooltip: usd(c.Data.TotalUsage) + " of " + usd(c.Data.TotalCredits) + " in credits used"})
+		}
 		r.Details = append(r.Details, domain.Stat{Label: "Balance", Value: usd(c.Data.TotalCredits - c.Data.TotalUsage)})
 	}
 	for _, s := range []struct {
@@ -126,7 +128,7 @@ func openRouterResult(k openRouterKey, c *openRouterCredits, now time.Time) remo
 	if len(bars) > 0 {
 		r.Groups = []domain.Group{{Bars: bars}}
 	} else {
-		r.Note = "No spending limit on this key and no prepaid credits to compare against."
+		r.Note = "Nothing to measure against yet: add credits, or set a credit limit on this key at openrouter.ai to get a bar. Spend is under the arrow."
 	}
 	return r
 }

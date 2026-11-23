@@ -50,6 +50,10 @@ func TestOpenRouterResult(t *testing.T) {
 	if r := openRouterResult(free, nil, now); r.Plan != "Free tier" || len(r.Groups) != 0 || r.Note == "" {
 		t.Errorf("uncapped = %+v", r)
 	}
+	// credits readable but empty: balance $0.00, still no bar
+	if r := openRouterResult(free, &openRouterCredits{}, now); len(r.Groups) != 0 || len(r.Details) != 1 || r.Details[0].Value != "$0.00" {
+		t.Errorf("zero credits = %+v", r)
+	}
 }
 
 func TestOpenRouterFetchHTTP(t *testing.T) {
