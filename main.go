@@ -17,6 +17,7 @@ func main() {
 	if handleInstall() { // install / update / uninstall (install_windows.go)
 		return
 	}
+	repairAutostart() // the exe may have moved since autostart was turned on
 	app := NewApp()
 	// The Wails window is the panel only; the taskbar pill is a separate
 	// native window (pill_windows.go).
