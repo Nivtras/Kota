@@ -50,6 +50,17 @@ func TestOpenRouterResult(t *testing.T) {
 	if r := openRouterResult(free, nil, now); r.Plan != "Free tier" || len(r.Groups) != 0 || r.Note == "" {
 		t.Errorf("uncapped = %+v", r)
 	}
+	// free-model daily requests: a bar resetting at the next UTC midnight
+	free.Data.FreeModelDaily = &struct {
+		Used      float64 `json:"used"`
+		Limit     float64 `json:"limit"`
+		Remaining float64 `json:"remaining"`
+	}{Used: 12, Limit: 50, Remaining: 38}
+	if r := openRouterResult(free, nil, now); len(r.Groups) != 1 || r.Groups[0].Bars[0].UsedPct != 24 ||
+		r.Groups[0].Bars[0].ResetsAt != "2026-11-26T00:00:00Z" || r.Groups[0].Bars[0].WindowSec != 86400 {
+		t.Errorf("free daily = %+v", r.Groups)
+	}
+	free.Data.FreeModelDaily = nil
 	// credits readable but empty: balance $0.00, still no bar
 	if r := openRouterResult(free, &openRouterCredits{}, now); len(r.Groups) != 0 || len(r.Details) != 1 || r.Details[0].Value != "$0.00" {
 		t.Errorf("zero credits = %+v", r)

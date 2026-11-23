@@ -7,6 +7,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -37,6 +38,13 @@ type openRouterKey struct {
 		UsageWeekly    *float64 `json:"usage_weekly"`
 		UsageMonthly   *float64 `json:"usage_monthly"`
 		IsFreeTier     bool     `json:"is_free_tier"`
+		// Requests to :free models today (UTC) against the account's daily
+		// cap: 50, or 1000 once at least $10 of credits were ever bought.
+		FreeModelDaily *struct {
+			Used      float64 `json:"used"`
+			Limit     float64 `json:"limit"`
+			Remaining float64 `json:"remaining"`
+		} `json:"free_model_daily_requests"`
 	} `json:"data"`
 }
 
@@ -109,6 +117,12 @@ func openRouterResult(k openRouterKey, c *openRouterCredits, now time.Time) remo
 			}
 		}
 		bars = append(bars, b)
+	}
+	if f := d.FreeModelDaily; f != nil && f.Limit > 0 {
+		reset, window := openRouterReset("daily", now)
+		bars = append(bars, domain.Bar{Label: "Free models · daily requests", UsedPct: clamp(100 * f.Used / f.Limit),
+			ResetsAt: reset.Format(time.RFC3339), WindowSec: int64(window / time.Second),
+			Tooltip: fmt.Sprintf("%.0f of %.0f requests to :free models today (UTC) · also max 20 per minute", f.Used, f.Limit)})
 	}
 	if c != nil {
 		if c.Data.TotalCredits > 0 {
