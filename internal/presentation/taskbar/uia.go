@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package taskbar
 
 // Native UI Automation (COM) lookup of the Windows 11 Start button. The Win11
 // taskbar is XAML, so Start has no HWND; UI Automation is the supported way

@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package taskbar
 
 // pillSet: the primary pill plus, when "all monitors" is on, one pill per
 // secondary taskbar (Shell_SecondaryTrayWnd). It keeps the set in sync as
@@ -32,28 +32,12 @@ func newPillSet(primary *pill, multi bool) *pillSet {
 	return ps
 }
 
-// secondaryTaskbars lists the taskbars of the other monitors.
-func secondaryTaskbars() []uintptr {
-	var out []uintptr
-	cls := win32.UTF16Ptr("Shell_SecondaryTrayWnd")
-	var prev uintptr
-	for i := 0; i < 16; i++ {
-		h, _, _ := win32.FindWindowExW.Call(0, prev, uintptr(unsafe.Pointer(cls)), 0)
-		if h == 0 {
-			break
-		}
-		out = append(out, h)
-		prev = h
-	}
-	return out
-}
-
 func (ps *pillSet) sync() {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	want := map[uintptr]bool{}
 	if ps.multi {
-		for _, tb := range secondaryTaskbars() {
+		for _, tb := range win32.SecondaryTaskbars() {
 			want[tb] = true
 		}
 	}
@@ -117,16 +101,4 @@ func anyPillHas(pt win32.Point) bool {
 		}
 	}
 	return false
-}
-
-// taskbarAt returns the taskbar (primary or secondary) containing pt,
-// falling back to the primary one.
-func taskbarAt(pt win32.Point) uintptr {
-	primary := win32.FindWindow("Shell_TrayWnd", "")
-	for _, tb := range append([]uintptr{primary}, secondaryTaskbars()...) {
-		if r, ok := win32.WindowRect(tb); ok && r.Has(pt.X, pt.Y) {
-			return tb
-		}
-	}
-	return primary
 }

@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package taskbar
 
 // The taskbar pill: a native window (GDI-drawn) living inside the taskbar.
 //
@@ -438,9 +438,6 @@ func hostProc(hwnd, m, wp, lp uintptr) uintptr {
 	case m == msgRelayout:
 		p.layout()
 		p.repaint()
-		return 0
-	case m == msgTray:
-		theToaster.trayMessage(lp)
 		return 0
 	case m == msgRepaint:
 		p.repaint()

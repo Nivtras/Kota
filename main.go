@@ -16,6 +16,8 @@ import (
 	"kota/internal/infrastructure/providers"
 	"kota/internal/infrastructure/storage"
 	"kota/internal/infrastructure/system"
+	"kota/internal/presentation/panel"
+	"kota/internal/presentation/toast"
 )
 
 //go:embed all:frontend/dist
@@ -28,22 +30,24 @@ func main() {
 	}
 	system.RepairAutostart() // the exe may have moved since autostart was turned on
 
-	app := NewApp(newServices(), loadLogos())
+	toaster := toast.New()
+	api := panel.NewAPI(newServices(toaster), loadLogos(), toaster)
+	onStartup, onDomReady := panel.Hooks(api)
 	// The Wails window is the panel only; the taskbar pill is a separate
-	// native window (pill_windows.go).
+	// native window (internal/presentation/taskbar).
 	err := wails.Run(&options.App{
-		Title:            windowTitle,
-		Width:            panelW,
-		Height:           panelH,
+		Title:            panel.Title,
+		Width:            panel.Width,
+		Height:           panel.Height,
 		Frameless:        true,
 		AlwaysOnTop:      true,
 		StartHidden:      true,
 		DisableResize:    true,
 		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 0},
 		AssetServer:      &assetserver.Options{Assets: assets},
-		OnStartup:        app.startup,
-		OnDomReady:       app.domReady,
-		Bind:             []interface{}{app},
+		OnStartup:        onStartup,
+		OnDomReady:       onDomReady,
+		Bind:             []interface{}{api},
 		// A second launch (double-click, startup + manual) just exits.
 		SingleInstanceLock: &options.SingleInstanceLock{UniqueId: "kota-5c1f2e"},
 		Windows: &windows.Options{
@@ -63,7 +67,7 @@ func main() {
 	}
 }
 
-func newServices() Services {
+func newServices(notifier application.Notifier) panel.Services {
 	presence := system.Presence{}
 	settings := application.NewSettingsService(
 		storage.NewPreferencesStore(storage.Path("config.json")), system.Autostart{})
@@ -73,11 +77,11 @@ func newServices() Services {
 	}
 	usage := application.NewUsageService(sources, presence)
 	notes := application.NewNotificationService(settings,
-		storage.NewAlertStore(storage.Path("notify-state.json")), balloons{}, presence)
+		storage.NewAlertStore(storage.Path("notify-state.json")), notifier, presence)
 	hist := application.NewHistoryService(storage.NewHistoryStore(storage.Path("history.json")))
 	usage.OnUsage(hist.Record)
 	usage.OnUsage(notes.Check)
-	return Services{
+	return panel.Services{
 		Settings:      settings,
 		Usage:         usage,
 		Notifications: notes,

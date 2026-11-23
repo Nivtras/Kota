@@ -268,3 +268,33 @@ func R(l, t, r, b int32) Rect { return Rect{L: l, T: t, R: r, B: b} }
 
 // Pt builds a Point.
 func Pt(x, y int32) Point { return Point{X: x, Y: y} }
+
+// ---------- taskbars ----------
+
+// SecondaryTaskbars lists the taskbars of the other monitors.
+func SecondaryTaskbars() []uintptr {
+	var out []uintptr
+	cls := UTF16Ptr("Shell_SecondaryTrayWnd")
+	var prev uintptr
+	for i := 0; i < 16; i++ {
+		h, _, _ := FindWindowExW.Call(0, prev, uintptr(unsafe.Pointer(cls)), 0)
+		if h == 0 {
+			break
+		}
+		out = append(out, h)
+		prev = h
+	}
+	return out
+}
+
+// TaskbarAt returns the taskbar (primary or secondary) containing pt,
+// falling back to the primary one.
+func TaskbarAt(pt Point) uintptr {
+	primary := FindWindow("Shell_TrayWnd", "")
+	for _, tb := range append([]uintptr{primary}, SecondaryTaskbars()...) {
+		if r, ok := WindowRect(tb); ok && r.Has(pt.X, pt.Y) {
+			return tb
+		}
+	}
+	return primary
+}

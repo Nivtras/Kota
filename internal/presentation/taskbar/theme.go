@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package taskbar
 
 // Pill colours follow the taskbar's theme (Settings → Personalization →
 // Colors → "Choose your default Windows mode").

@@ -291,7 +291,7 @@ function logoHTML(u) {
   return `<img class="logo img" src="${lg.img}" alt="" onerror="this.outerHTML=this.dataset.fb" data-fb="${esc(letter)}">`;
 }
 const $ = (id) => document.getElementById(id);
-const api = () => window.go && window.go.main && window.go.main.App;
+const api = () => window.go && window.go.panel && window.go.panel.API;
 let lastUpdate = null, loading = false, lastData = [], shownAt = 0;
 
 const store = {

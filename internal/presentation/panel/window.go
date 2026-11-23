@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package panel
 
 // The panel is the Wails window: an ordinary top-level popup that is shown
 // above the pill and hidden again. It is never re-parented, so focus, input
@@ -9,14 +9,16 @@ package main
 import (
 	"kota/internal/infrastructure/storage"
 	"kota/internal/infrastructure/win32"
+	"kota/internal/presentation/taskbar"
 	"sync"
 	"time"
 	"unsafe"
 )
 
 const (
-	panelW = 360 // logical px
-	panelH = 480
+	Width  = 360 // logical px
+	Height = 480
+	gap    = 8 // between the panel and the taskbar
 )
 
 type panel struct {
@@ -77,14 +79,14 @@ func (pn *panel) show(pill win32.Rect) {
 		return
 	}
 	// The taskbar of the monitor whose pill was clicked.
-	tb := taskbarAt(win32.Pt((pill.L+pill.R)/2, (pill.T+pill.B)/2))
+	tb := win32.TaskbarAt(win32.Pt((pill.L+pill.R)/2, (pill.T+pill.B)/2))
 	tbr, ok := win32.WindowRect(tb)
 	if !ok {
 		return
 	}
 	s := win32.DPIScale(tb)
 	px := func(v int) int32 { return int32(float64(v)*s + 0.5) }
-	w, ht := px(panelW), px(panelH)
+	w, ht := px(Width), px(Height)
 	x := pill.R - w // right-aligned with the pill
 	if pill.R == 0 {
 		x = tbr.R - w - px(gap)
@@ -156,7 +158,7 @@ func (pn *panel) watchOutside() {
 		var pt win32.Point
 		win32.GetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
 		r, _ := win32.WindowRect(h)
-		outside := fg != h && !r.Has(pt.X, pt.Y) && !anyPillHas(pt)
+		outside := fg != h && !r.Has(pt.X, pt.Y) && !taskbar.Has(pt)
 		switch {
 		case down && !wasDown:
 			pressedOutside = outside

@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package taskbar
 
 // Pill extras: hover tooltip and right-click menu (window thread).
 

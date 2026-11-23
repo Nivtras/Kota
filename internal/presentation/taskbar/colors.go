@@ -1,4 +1,6 @@
-package main
+//go:build windows
+
+package taskbar
 
 // Pill colours: the domain classifies usage (ok / warn / bad), the pill
 // paints it.
