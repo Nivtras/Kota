@@ -6,6 +6,8 @@
 <title>Kota</title>
 <style>
   :root {
+    /* Native controls (the <select> drop-down list, scrollbars) follow this. */
+    color-scheme: dark;
     --bg: rgb(20, 20, 22);
     --pill-bg: rgba(28, 28, 31, 0.96);
     --line: rgba(255, 255, 255, 0.07);
@@ -26,7 +28,9 @@
   /* Follows the Windows app theme (Settings → Personalization → Colors). */
   @media (prefers-color-scheme: light) {
     :root {
+      color-scheme: light;
       --bg: rgb(249, 249, 251);
+      --pill-bg: rgba(255, 255, 255, 0.98);
       --line: rgba(0, 0, 0, 0.09);
       --hover: rgba(0, 0, 0, 0.05);
       --text: #1b1b1f;
@@ -80,6 +84,8 @@
     background: var(--pill); color: var(--text); border: 1px solid var(--line);
     border-radius: 6px; font: inherit; padding: 2px 4px;
   }
+  .levels select option { background: var(--bg); color: var(--text); }
+  .levels select:disabled { opacity: .5; }
   .link-btn {
     border: 1px solid var(--line); background: var(--pill); color: var(--text);
     font: inherit; font-size: 11px; padding: 4px 10px; border-radius: 6px; cursor: pointer;
