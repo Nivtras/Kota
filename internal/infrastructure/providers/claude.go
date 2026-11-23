@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"kota/internal/domain"
+	"kota/internal/infrastructure/storage"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -166,7 +167,7 @@ func anyResetPassed(bars []domain.Bar) bool {
 
 var claudeCacheMu sync.Mutex
 
-func claudeCachePath() string { return filepath.Join(DataDir(), "claude-cache.json") }
+func claudeCachePath() string { return storage.Path("claude-cache.json") }
 
 func loadClaudeCache() claudeCache {
 	claudeCacheMu.Lock()

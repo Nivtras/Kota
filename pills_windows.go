@@ -7,6 +7,7 @@ package main
 // monitors come and go and when Explorer restarts.
 
 import (
+	"kota/internal/infrastructure/win32"
 	"sync"
 	"time"
 	"unsafe"
@@ -34,10 +35,10 @@ func newPillSet(primary *pill, multi bool) *pillSet {
 // secondaryTaskbars lists the taskbars of the other monitors.
 func secondaryTaskbars() []uintptr {
 	var out []uintptr
-	cls := utf16("Shell_SecondaryTrayWnd")
+	cls := win32.UTF16Ptr("Shell_SecondaryTrayWnd")
 	var prev uintptr
 	for i := 0; i < 16; i++ {
-		h, _, _ := pFindWindowExW.Call(0, prev, uintptr(unsafe.Pointer(cls)), 0)
+		h, _, _ := win32.FindWindowExW.Call(0, prev, uintptr(unsafe.Pointer(cls)), 0)
 		if h == 0 {
 			break
 		}
@@ -90,11 +91,11 @@ func (ps *pillSet) setPosition(anchor string, off int) {
 
 // screenRect is the pill under the cursor (e.g. the one right-clicked),
 // else the primary one.
-func (ps *pillSet) screenRect() rect {
-	var pt point
-	pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+func (ps *pillSet) screenRect() win32.Rect {
+	var pt win32.Point
+	win32.GetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
 	for _, p := range allPills() {
-		if r := p.screenRect(); r.has(pt.X, pt.Y) {
+		if r := p.screenRect(); r.Has(pt.X, pt.Y) {
 			return r
 		}
 	}
@@ -109,9 +110,9 @@ func (ps *pillSet) setMulti(on bool) {
 }
 
 // anyPillHas reports whether pt is on any pill (screen px).
-func anyPillHas(pt point) bool {
+func anyPillHas(pt win32.Point) bool {
 	for _, p := range allPills() {
-		if p.screenRect().has(pt.X, pt.Y) {
+		if p.screenRect().Has(pt.X, pt.Y) {
 			return true
 		}
 	}
@@ -120,10 +121,10 @@ func anyPillHas(pt point) bool {
 
 // taskbarAt returns the taskbar (primary or secondary) containing pt,
 // falling back to the primary one.
-func taskbarAt(pt point) uintptr {
-	primary := findWindow("Shell_TrayWnd", "")
+func taskbarAt(pt win32.Point) uintptr {
+	primary := win32.FindWindow("Shell_TrayWnd", "")
 	for _, tb := range append([]uintptr{primary}, secondaryTaskbars()...) {
-		if r, ok := windowRect(tb); ok && r.has(pt.X, pt.Y) {
+		if r, ok := win32.WindowRect(tb); ok && r.Has(pt.X, pt.Y) {
 			return tb
 		}
 	}

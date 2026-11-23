@@ -1,12 +1,13 @@
 //go:build windows
 
-package main
+package system
 
 // Follow mode: find which AI tool the user is working in. The foreground
 // app itself (Claude, Codex, Antigravity), or — for terminals and editors —
 // a CLI running inside it (claude.exe, codex.exe, agy.exe).
 
 import (
+	"kota/internal/infrastructure/win32"
 	"path/filepath"
 	"strings"
 	"time"
@@ -15,7 +16,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-var pQueryFullProcessImageNameW = kernel32.NewProc("QueryFullProcessImageNameW")
+var pQueryFullProcessImageNameW = win32.Kernel32.NewProc("QueryFullProcessImageNameW")
 
 // exe name (lower case) → provider ID
 var toolExes = map[string]string{
@@ -89,7 +90,7 @@ func cliUnder(root uint32, prefer string) string {
 
 // watchActiveTool reports the provider of the app in use whenever it
 // changes. Unrelated apps (a browser, …) keep the last detected tool.
-func watchActiveTool(enabled func() bool, onChange func(id string)) {
+func WatchActiveTool(enabled func() bool, onChange func(id string)) {
 	var lastPid uint32
 	current := ""
 	lastScan := time.Time{}
@@ -97,9 +98,9 @@ func watchActiveTool(enabled func() bool, onChange func(id string)) {
 		if !enabled() {
 			continue
 		}
-		fg, _, _ := pGetForegroundWindow.Call()
+		fg, _, _ := win32.GetForegroundWindow.Call()
 		var pid uint32
-		pGetWindowThreadProcessId.Call(fg, uintptr(unsafe.Pointer(&pid)))
+		win32.GetWindowThreadProcessId.Call(fg, uintptr(unsafe.Pointer(&pid)))
 		if pid == 0 {
 			continue
 		}

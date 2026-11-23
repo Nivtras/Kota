@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"kota/providers"
+	"kota/internal/infrastructure/providers"
 )
 
 func main() {

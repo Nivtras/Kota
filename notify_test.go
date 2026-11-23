@@ -1,6 +1,7 @@
 package main
 
 import (
+	"kota/internal/infrastructure/storage"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,10 +17,10 @@ func TestNotifierPersists(t *testing.T) {
 		{Label: "5-hour limit", UsedPct: 82, ResetsAt: now.Add(2 * time.Hour).Format(time.RFC3339)},
 	}}}}}
 	path := filepath.Join(t.TempDir(), "notify.json")
-	if a := newNotifier(path).check(data, now); len(a) != 1 {
+	if a := newNotifier(storage.NewAlertStore(path)).check(data, now); len(a) != 1 {
 		t.Fatalf("first: %v", a)
 	}
-	if a := newNotifier(path).check(data, now.Add(time.Minute)); len(a) != 0 {
+	if a := newNotifier(storage.NewAlertStore(path)).check(data, now.Add(time.Minute)); len(a) != 0 {
 		t.Fatalf("after restart: %v", a)
 	}
 }

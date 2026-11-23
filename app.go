@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"kota/internal/domain"
-	"path/filepath"
+	"kota/internal/infrastructure/storage"
+	"kota/internal/infrastructure/system"
+	"kota/internal/infrastructure/win32"
 	"sync"
 	"time"
 
-	"kota/providers"
+	"kota/internal/infrastructure/providers"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -43,11 +45,10 @@ type App struct {
 }
 
 func NewApp() *App {
-	path := filepath.Join(filepath.Dir(configPath()), "notify-state.json")
 	cfg := loadConfig()
-	n := newNotifier(path)
+	n := newNotifier(storage.NewAlertStore(storage.Path("notify-state.json")))
 	n.setLevels(cfg.NotifyWarn, cfg.NotifyCrit)
-	hist := newHistory(filepath.Join(filepath.Dir(configPath()), "history.json"))
+	hist := newHistory(storage.NewHistoryStore(storage.Path("history.json")))
 	return &App{cfg: cfg, panel: &panel{}, notifier: n, hist: hist, kick: make(chan struct{}, 1)}
 }
 
@@ -62,7 +63,7 @@ func (a *App) startup(ctx context.Context) {
 		offset = *a.cfg.PillOffset
 	}
 	primary := newPill(a.cfg.CompactWidth, a.cfg.PillAnchor, offset, loadLogos(),
-		func(r rect) { a.panel.toggle(r) },
+		func(r win32.Rect) { a.panel.toggle(r) },
 		func(anchor string, off int) { // the user dragged a pill
 			a.cfgMu.Lock()
 			a.cfg.PillAnchor, a.cfg.PillOffset = anchor, &off
@@ -75,7 +76,7 @@ func (a *App) startup(ctx context.Context) {
 	theToaster.onClick = func() { a.panel.show(a.pill.screenRect()) } // click on a notification
 	go a.refreshLoop()
 	go a.updateLoop()
-	go watchActiveTool(
+	go system.WatchActiveTool(
 		func() bool { a.cfgMu.Lock(); defer a.cfgMu.Unlock(); return a.cfg.FollowActive },
 		func(id string) {
 			a.cfgMu.Lock()
@@ -138,7 +139,7 @@ func (a *App) refreshLoop() {
 	var nextAt time.Time
 	fetchNow := func() {
 		a.fetch()
-		nextAt = time.Now().Add(domain.RefreshDelay(userIdle(), a.snapshot(), time.Now()))
+		nextAt = time.Now().Add(domain.RefreshDelay(system.UserIdle(), a.snapshot(), time.Now()))
 	}
 	fetchNow()
 	wasIdle := false
@@ -152,7 +153,7 @@ func (a *App) refreshLoop() {
 			fetchNow()
 		case <-repaint.C:
 			timer.Stop()
-			idle := userIdle() >= domain.IdleAfter
+			idle := system.UserIdle() >= domain.IdleAfter
 			if wasIdle && !idle {
 				fetchNow() // back at the keyboard: show fresh numbers
 			} else {
@@ -355,10 +356,10 @@ func (a *App) ResetPillPosition() {
 
 // SetAutostart turns "Start with Windows" on or off; returns the new state.
 func (a *App) SetAutostart(on bool) bool {
-	if err := setAutostart(on); err != nil {
-		dockLog("autostart: %v", err)
+	if err := system.SetAutostart(on); err != nil {
+		storage.Log("autostart: %v", err)
 	}
-	return autostartEnabled()
+	return system.AutostartEnabled()
 }
 
 // Settings are the user's display preferences, edited in the panel.
@@ -383,7 +384,7 @@ func (a *App) GetSettings() Settings {
 	s := Settings{
 		Taskbar: a.cfg.Taskbar, Display: a.cfg.Display,
 		Width: domain.ClampWidth(a.cfg.CompactWidth), MinWidth: domain.MinWidth, MaxWidth: domain.MaxWidth,
-		Autostart: autostartEnabled(),
+		Autostart: system.AutostartEnabled(),
 		Notify:    !a.cfg.NotifyOff,
 		Follow:    a.cfg.FollowActive,
 		Multi:     a.cfg.AllMonitors,

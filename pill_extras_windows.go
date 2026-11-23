@@ -5,16 +5,17 @@ package main
 // Pill extras: hover tooltip and right-click menu (window thread).
 
 import (
+	"kota/internal/infrastructure/win32"
 	"strings"
 	"unsafe"
 )
 
 var (
-	pCreatePopupMenu = user32.NewProc("CreatePopupMenu")
-	pAppendMenuW     = user32.NewProc("AppendMenuW")
-	pTrackPopupMenu  = user32.NewProc("TrackPopupMenu")
-	pDestroyMenu     = user32.NewProc("DestroyMenu")
-	pSendMessageW    = user32.NewProc("SendMessageW")
+	pCreatePopupMenu = win32.User32.NewProc("CreatePopupMenu")
+	pAppendMenuW     = win32.User32.NewProc("AppendMenuW")
+	pTrackPopupMenu  = win32.User32.NewProc("TrackPopupMenu")
+	pDestroyMenu     = win32.User32.NewProc("DestroyMenu")
+	pSendMessageW    = win32.User32.NewProc("SendMessageW")
 )
 
 const (
@@ -50,7 +51,7 @@ type toolInfo struct {
 	Flags    uint32
 	Hwnd     uintptr
 	ID       uintptr
-	Rect     rect
+	Rect     win32.Rect
 	Inst     uintptr
 	Text     *uint16
 	LParam   uintptr
@@ -69,16 +70,16 @@ type tooltipState struct {
 // the taskbar.
 func (p *pill) attachTooltip(host, h, inst uintptr) {
 	if p.tip.hwnd != 0 {
-		pDestroyWindow.Call(p.tip.hwnd)
+		win32.DestroyWindow.Call(p.tip.hwnd)
 		p.tip = tooltipState{}
 	}
-	t, _, _ := pCreateWindowExW.Call(0x8 /*WS_EX_TOPMOST*/, uintptr(unsafe.Pointer(utf16("tooltips_class32"))), 0,
-		wsPopup|ttsAlwaysTip|ttsNoPrefix, 0, 0, 0, 0, host, 0, inst, 0)
+	t, _, _ := win32.CreateWindowExW.Call(0x8 /*WS_EX_TOPMOST*/, uintptr(unsafe.Pointer(win32.UTF16Ptr("tooltips_class32"))), 0,
+		win32.WsPopup|ttsAlwaysTip|ttsNoPrefix, 0, 0, 0, 0, host, 0, inst, 0)
 	if t == 0 {
 		return
 	}
 	p.tip = tooltipState{hwnd: t, owner: h}
-	ti := toolInfo{Size: uint32(unsafe.Sizeof(toolInfo{})), Flags: ttfIDIsHwnd | ttfSubclass, Hwnd: h, ID: h, Inst: inst, Text: utf16(" ")}
+	ti := toolInfo{Size: uint32(unsafe.Sizeof(toolInfo{})), Flags: ttfIDIsHwnd | ttfSubclass, Hwnd: h, ID: h, Inst: inst, Text: win32.UTF16Ptr(" ")}
 	pSendMessageW.Call(t, ttmAddToolW, 0, uintptr(unsafe.Pointer(&ti)))
 	pSendMessageW.Call(t, ttmSetMaxTipWidth, 0, 420)
 }
@@ -103,7 +104,7 @@ func (p *pill) updateTooltip(rows []pillRow) {
 		return
 	}
 	p.tip.text = text
-	ti := toolInfo{Size: uint32(unsafe.Sizeof(toolInfo{})), Flags: ttfIDIsHwnd, Hwnd: p.tip.owner, ID: p.tip.owner, Text: utf16(text)}
+	ti := toolInfo{Size: uint32(unsafe.Sizeof(toolInfo{})), Flags: ttfIDIsHwnd, Hwnd: p.tip.owner, ID: p.tip.owner, Text: win32.UTF16Ptr(text)}
 	pSendMessageW.Call(p.tip.hwnd, ttmUpdateTipTextW, 0, uintptr(unsafe.Pointer(&ti)))
 }
 
@@ -116,7 +117,7 @@ func showPillMenu(host uintptr) int {
 	}
 	defer pDestroyMenu.Call(m)
 	add := func(id int, s string) {
-		pAppendMenuW.Call(m, mfString, uintptr(id), uintptr(unsafe.Pointer(utf16(s))))
+		pAppendMenuW.Call(m, mfString, uintptr(id), uintptr(unsafe.Pointer(win32.UTF16Ptr(s))))
 	}
 	add(MenuOpen, "Open panel")
 	add(MenuRefresh, "Refresh now")
@@ -126,11 +127,11 @@ func showPillMenu(host uintptr) int {
 	pAppendMenuW.Call(m, mfSeparator, 0, 0)
 	add(MenuQuit, "Quit Kota")
 
-	var pt point
-	pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+	var pt win32.Point
+	win32.GetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
 	// Standard dance so the menu closes when clicking elsewhere.
-	pSetForegroundWindow.Call(host)
+	win32.SetForegroundWindow.Call(host)
 	cmd, _, _ := pTrackPopupMenu.Call(m, tpmReturnCmd|tpmRightButton|tpmBottomAlign, uintptr(pt.X), uintptr(pt.Y), 0, host, 0)
-	pPostMessageW.Call(host, wmNull, 0, 0)
+	win32.PostMessageW.Call(host, wmNull, 0, 0)
 	return int(cmd)
 }

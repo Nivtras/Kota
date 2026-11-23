@@ -1,8 +1,9 @@
 //go:build windows
 
-package main
+package system
 
 import (
+	"kota/internal/infrastructure/win32"
 	"os"
 	"strings"
 	"testing"
@@ -23,9 +24,9 @@ func TestActiveToolDiag(t *testing.T) {
 		}
 		t.Logf("cliUnder(%d) = %q", hp, cliUnder(hp, ""))
 	}
-	fg, _, _ := pGetForegroundWindow.Call()
+	fg, _, _ := win32.GetForegroundWindow.Call()
 	var pid uint32
-	pGetWindowThreadProcessId.Call(fg, uintptr(unsafe.Pointer(&pid)))
+	win32.GetWindowThreadProcessId.Call(fg, uintptr(unsafe.Pointer(&pid)))
 	name := exeName(pid)
 	t.Logf("foreground: %s (pid %d) → tool %q", name, pid, toolExes[name])
 

@@ -7,9 +7,8 @@ package main
 // and z-order behave like any normal window.
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
+	"kota/internal/infrastructure/storage"
+	"kota/internal/infrastructure/win32"
 	"sync"
 	"time"
 	"unsafe"
@@ -34,16 +33,16 @@ type panel struct {
 func (pn *panel) attach(title string) {
 	var h uintptr
 	for i := 0; i < 100 && h == 0; i++ {
-		if h = findWindow("", title); h == 0 {
+		if h = win32.FindWindow("", title); h == 0 {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
 	if h == 0 {
-		dockLog("panel: window not found")
+		storage.Log("panel: window not found")
 		return
 	}
-	ex, _, _ := pGetWindowLongPtrW.Call(h, gwlExStyle)
-	pSetWindowLongPtrW.Call(h, gwlExStyle, (ex|wsExToolWindow)&^wsExAppWindow)
+	ex, _, _ := win32.GetWindowLongPtrW.Call(h, win32.GwlExStyle)
+	win32.SetWindowLongPtrW.Call(h, win32.GwlExStyle, (ex|win32.WsExToolWindow)&^win32.WsExAppWindow)
 	pn.mu.Lock()
 	pn.hwnd = h
 	pn.mu.Unlock()
@@ -51,7 +50,7 @@ func (pn *panel) attach(title string) {
 }
 
 // toggle opens the panel above the pill, or closes it. One at a time.
-func (pn *panel) toggle(pillRect rect) {
+func (pn *panel) toggle(pillRect win32.Rect) {
 	if !pn.busy.TryLock() {
 		return
 	}
@@ -70,7 +69,7 @@ func (pn *panel) toggle(pillRect rect) {
 	}
 }
 
-func (pn *panel) show(pill rect) {
+func (pn *panel) show(pill win32.Rect) {
 	pn.mu.Lock()
 	h := pn.hwnd
 	pn.mu.Unlock()
@@ -78,12 +77,12 @@ func (pn *panel) show(pill rect) {
 		return
 	}
 	// The taskbar of the monitor whose pill was clicked.
-	tb := taskbarAt(point{(pill.L + pill.R) / 2, (pill.T + pill.B) / 2})
-	tbr, ok := windowRect(tb)
+	tb := taskbarAt(win32.Pt((pill.L+pill.R)/2, (pill.T+pill.B)/2))
+	tbr, ok := win32.WindowRect(tb)
 	if !ok {
 		return
 	}
-	s := dpiScale(tb)
+	s := win32.DPIScale(tb)
 	px := func(v int) int32 { return int32(float64(v)*s + 0.5) }
 	w, ht := px(panelW), px(panelH)
 	x := pill.R - w // right-aligned with the pill
@@ -95,8 +94,8 @@ func (pn *panel) show(pill rect) {
 	pn.mu.Lock()
 	pn.visible, pn.shownAt = true, time.Now()
 	pn.mu.Unlock()
-	pSetWindowPos.Call(h, hwndTopmost, uintptr(x), uintptr(y), uintptr(w), uintptr(ht), swpShowWindow)
-	forceForeground(h)
+	win32.SetWindowPos.Call(h, win32.HwndTopmost, uintptr(x), uintptr(y), uintptr(w), uintptr(ht), win32.SwpShowWindow)
+	win32.ForceForeground(h)
 	if pn.onShown != nil {
 		pn.onShown()
 	}
@@ -122,7 +121,7 @@ func (pn *panel) hide() {
 	}
 	pn.mu.Unlock()
 	if h != 0 && was {
-		pShowWindow.Call(h, swHide)
+		win32.ShowWindow.Call(h, win32.SwHide)
 	}
 }
 
@@ -130,8 +129,8 @@ func (pn *panel) hide() {
 // focus (if Windows refused to give it focus, no blur event would ever come).
 // With focus, the web view's blur handler closes it.
 func (pn *panel) watchOutside() {
-	btn := uintptr(0x01)                                           // VK_LBUTTON
-	if swapped, _, _ := pGetSystemMetrics.Call(23); swapped != 0 { // SM_SWAPBUTTON
+	btn := uintptr(0x01)                                                // VK_LBUTTON
+	if swapped, _, _ := win32.GetSystemMetrics.Call(23); swapped != 0 { // SM_SWAPBUTTON
 		btn = 0x02
 	}
 	var wasDown, pressedOutside, escWasDown bool
@@ -139,25 +138,25 @@ func (pn *panel) watchOutside() {
 		pn.mu.Lock()
 		h, visible := pn.hwnd, pn.visible
 		pn.mu.Unlock()
-		st, _, _ := pGetAsyncKeyState.Call(btn)
+		st, _, _ := win32.GetAsyncKeyState.Call(btn)
 		down := st&0x8000 != 0
-		esc, _, _ := pGetAsyncKeyState.Call(0x1B) // VK_ESCAPE
+		esc, _, _ := win32.GetAsyncKeyState.Call(0x1B) // VK_ESCAPE
 		escDown := esc&0x8000 != 0
 		if !visible {
 			wasDown, pressedOutside, escWasDown = down, false, escDown
 			continue
 		}
-		fg, _, _ := pGetForegroundWindow.Call()
+		fg, _, _ := win32.GetForegroundWindow.Call()
 		// Esc while the panel has focus closes it (the page may not have
 		// keyboard focus inside the web view, so don't rely on its keydown).
 		if escDown && !escWasDown && fg == h {
 			pn.hide()
 		}
 		escWasDown = escDown
-		var pt point
-		pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
-		r, _ := windowRect(h)
-		outside := fg != h && !r.has(pt.X, pt.Y) && !anyPillHas(pt)
+		var pt win32.Point
+		win32.GetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+		r, _ := win32.WindowRect(h)
+		outside := fg != h && !r.Has(pt.X, pt.Y) && !anyPillHas(pt)
 		switch {
 		case down && !wasDown:
 			pressedOutside = outside
@@ -169,19 +168,4 @@ func (pn *panel) watchOutside() {
 		}
 		wasDown = down
 	}
-}
-
-// dockLog appends a line to %APPDATA%\Kota\dock.log (kept small).
-func dockLog(format string, args ...any) {
-	p := filepath.Join(filepath.Dir(configPath()), "dock.log")
-	if fi, err := os.Stat(p); err == nil && fi.Size() > 64<<10 {
-		_ = os.Remove(p)
-	}
-	_ = os.MkdirAll(filepath.Dir(p), 0o755)
-	f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	fmt.Fprintf(f, "%s "+format+"\n", append([]any{time.Now().Format(time.DateTime)}, args...)...)
 }

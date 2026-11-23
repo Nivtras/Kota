@@ -19,6 +19,8 @@ import (
 	"bytes"
 	"image"
 	"image/png"
+	"kota/internal/infrastructure/storage"
+	"kota/internal/infrastructure/win32"
 	"runtime"
 	"strconv"
 	"sync"
@@ -38,8 +40,8 @@ const (
 	timerRelayout = 2 // debounced re-layout after a taskbar change
 	timerSettle   = 3 // second look after Start's slide animation
 
-	msgRelayout = wmApp + 1 // re-layout + repaint (posted from any thread)
-	msgRepaint  = wmApp + 2 // repaint only
+	msgRelayout = win32.WmApp + 1 // re-layout + repaint (posted from any thread)
+	msgRepaint  = win32.WmApp + 2 // repaint only
 )
 
 type pill struct {
@@ -47,8 +49,8 @@ type pill struct {
 	rows      []pillRow
 	width     int // logical px
 	hover     bool
-	startLeft int32 // Start button left edge, physical px (0 = unknown)
-	screen    rect  // pill rect in screen px (for the panel)
+	startLeft int32      // Start button left edge, physical px (0 = unknown)
+	screen    win32.Rect // pill rect in screen px (for the panel)
 
 	host, hwnd, tb uintptr
 	hook           uintptr
@@ -67,7 +69,7 @@ type pill struct {
 	dragLeft          int32 // pill left while dragging
 	downAt            time.Time
 
-	onClick func(screen rect)               // called on its own goroutine
+	onClick func(screen win32.Rect)         // called on its own goroutine
 	onMoved func(anchor string, offset int) // after a drag; own goroutine
 	onMenu  func(cmd int)                   // right-click menu choice; own goroutine
 	logos   map[string][]byte               // provider id → PNG
@@ -128,7 +130,7 @@ var (
 )
 
 func newPill(width int, anchor string, offset int, logos map[string][]byte,
-	onClick func(rect), onMoved func(string, int)) *pill {
+	onClick func(win32.Rect), onMoved func(string, int)) *pill {
 	refreshTheme()
 	if anchor != anchorTray {
 		anchor = anchorStart
@@ -159,7 +161,7 @@ func (p *pill) close() {
 	h := p.host
 	p.mu.Unlock()
 	if h != 0 {
-		pPostMessageW.Call(h, wmClose, 0, 0)
+		win32.PostMessageW.Call(h, win32.WmClose, 0, 0)
 	}
 }
 
@@ -170,7 +172,7 @@ func (p *pill) setPosition(anchor string, offset int) {
 	h := p.host
 	p.mu.Unlock()
 	if h != 0 {
-		pPostMessageW.Call(h, msgRelayout, 0, 0)
+		win32.PostMessageW.Call(h, msgRelayout, 0, 0)
 	}
 }
 
@@ -182,7 +184,7 @@ func (p *pill) setRows(rows []pillRow) {
 	h := p.host
 	p.mu.Unlock()
 	if h != 0 {
-		pPostMessageW.Call(h, msgRepaint, 0, 0)
+		win32.PostMessageW.Call(h, msgRepaint, 0, 0)
 	}
 }
 
@@ -192,12 +194,12 @@ func (p *pill) setWidth(w int) {
 	h := p.host
 	p.mu.Unlock()
 	if h != 0 {
-		pPostMessageW.Call(h, msgRelayout, 0, 0)
+		win32.PostMessageW.Call(h, msgRelayout, 0, 0)
 	}
 }
 
 // screenRect is where the pill currently is (physical screen px).
-func (p *pill) screenRect() rect {
+func (p *pill) screenRect() win32.Rect {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.screen
@@ -209,27 +211,27 @@ var uia = newUIAWorker()
 
 func (p *pill) loop() {
 	runtime.LockOSThread()
-	inst, _, _ := pGetModuleHandleW.Call(0)
-	cursor, _, _ := pLoadCursorW.Call(0, idcHand)
+	inst, _, _ := win32.GetModuleHandleW.Call(0)
+	cursor, _, _ := win32.LoadCursorW.Call(0, win32.IdcHand)
 
-	hostClass := utf16("KotaPillHost")
-	pillClass := utf16("KotaPill")
+	hostClass := win32.UTF16Ptr("KotaPillHost")
+	pillClass := win32.UTF16Ptr("KotaPill")
 	registerOnce.Do(func() {
-		pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wndClassEx{
-			Size: uint32(unsafe.Sizeof(wndClassEx{})), WndProc: hostProcCallback,
+		win32.RegisterClassExW.Call(uintptr(unsafe.Pointer(&win32.WndClassEx{
+			Size: uint32(unsafe.Sizeof(win32.WndClassEx{})), WndProc: hostProcCallback,
 			Instance: inst, ClassName: hostClass,
 		})))
-		pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wndClassEx{
-			Size: uint32(unsafe.Sizeof(wndClassEx{})), WndProc: pillProcCallback,
+		win32.RegisterClassExW.Call(uintptr(unsafe.Pointer(&win32.WndClassEx{
+			Size: uint32(unsafe.Sizeof(win32.WndClassEx{})), WndProc: pillProcCallback,
 			Instance: inst, ClassName: pillClass, Cursor: cursor,
 		})))
 	})
 
 	// A hidden top-level window: receives the TaskbarCreated broadcast (child
 	// windows don't) and owns the timers.
-	host, _, _ := pCreateWindowExW.Call(wsExToolWindow, uintptr(unsafe.Pointer(hostClass)), 0,
-		wsPopup, 0, 0, 0, 0, 0, 0, inst, 0)
-	tc, _, _ := pRegisterWindowMessageW.Call(uintptr(unsafe.Pointer(utf16("TaskbarCreated"))))
+	host, _, _ := win32.CreateWindowExW.Call(win32.WsExToolWindow, uintptr(unsafe.Pointer(hostClass)), 0,
+		win32.WsPopup, 0, 0, 0, 0, 0, 0, inst, 0)
+	tc, _, _ := win32.RegisterWindowMessageW.Call(uintptr(unsafe.Pointer(win32.UTF16Ptr("TaskbarCreated"))))
 	p.mu.Lock()
 	p.host, p.taskbarCreated = host, uint32(tc)
 	p.mu.Unlock()
@@ -237,20 +239,20 @@ func (p *pill) loop() {
 	pillByHost[host] = p
 	pillsMu.Unlock()
 	if p.closed.Load() { // closed before the thread got going
-		pPostMessageW.Call(host, wmClose, 0, 0)
+		win32.PostMessageW.Call(host, win32.WmClose, 0, 0)
 	}
 
 	p.createPill(inst, pillClass)
-	pSetTimer.Call(host, timerFallback, 5000, 0)
+	win32.SetTimer.Call(host, timerFallback, 5000, 0)
 
-	var m msg
+	var m win32.Msg
 	for {
-		r, _, _ := pGetMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
+		r, _, _ := win32.GetMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
 		if int32(r) <= 0 {
 			return
 		}
-		pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
-		pDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
+		win32.TranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
+		win32.DispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
 	}
 }
 
@@ -262,10 +264,10 @@ var (
 // createPill (re)creates the pill inside the current taskbar. Window thread.
 func (p *pill) createPill(inst uintptr, class *uint16) {
 	pillInst, pillClass = inst, class
-	tb := findWindow("Shell_TrayWnd", "")
+	tb := win32.FindWindow("Shell_TrayWnd", "")
 	if p.secondary {
 		tb = p.fixedTB
-		if ok, _, _ := pIsWindow.Call(tb); ok == 0 {
+		if ok, _, _ := win32.IsWindow.Call(tb); ok == 0 {
 			return
 		}
 	}
@@ -275,29 +277,29 @@ func (p *pill) createPill(inst uintptr, class *uint16) {
 	// Create as a hidden popup, then re-parent into the taskbar. It must be
 	// layered: the Win11 taskbar is DirectComposition-based, and a plain GDI
 	// child window is not composited (it stays invisible).
-	h, _, _ := pCreateWindowExW.Call(wsExToolWindow|wsExNoActivate|wsExLayered, uintptr(unsafe.Pointer(class)), 0,
-		wsPopup, 0, 0, 1, 1, 0, 0, inst, 0)
+	h, _, _ := win32.CreateWindowExW.Call(win32.WsExToolWindow|win32.WsExNoActivate|win32.WsExLayered, uintptr(unsafe.Pointer(class)), 0,
+		win32.WsPopup, 0, 0, 1, 1, 0, 0, inst, 0)
 	if h == 0 {
-		dockLog("pill: CreateWindowEx failed")
+		storage.Log("pill: CreateWindowEx failed")
 		return
 	}
-	pSetLayeredWindowAttributes.Call(h, 0, 255, lwaAlpha)
-	pSetWindowLongPtrW.Call(h, gwlStyle, wsChild|wsClipSiblings)
-	pSetParent.Call(h, tb)
+	win32.SetLayeredWindowAttributes.Call(h, 0, 255, win32.LwaAlpha)
+	win32.SetWindowLongPtrW.Call(h, win32.GwlStyle, win32.WsChild|win32.WsClipSiblings)
+	win32.SetParent.Call(h, tb)
 
 	// Watch the taskbar for layout changes (pinned/running apps change where
 	// Start is). Out-of-context hooks are delivered to this thread's loop.
 	if p.hook != 0 {
-		pUnhookWinEvent.Call(p.hook)
+		win32.UnhookWinEvent.Call(p.hook)
 	}
 	var pid uint32
-	pGetWindowThreadProcessId.Call(tb, uintptr(unsafe.Pointer(&pid)))
-	hook, _, _ := pSetWinEventHook.Call(eventLocationChg, eventLocationChg, 0,
+	win32.GetWindowThreadProcessId.Call(tb, uintptr(unsafe.Pointer(&pid)))
+	hook, _, _ := win32.SetWinEventHook.Call(win32.EventLocationChg, win32.EventLocationChg, 0,
 		winEventCallback, uintptr(pid), 0, 0)
 
 	p.mu.Lock()
 	p.hwnd, p.tb, p.hook = h, tb, hook
-	p.screen = rect{} // new window: force the first layout to size/move it
+	p.screen = win32.Rect{} // new window: force the first layout to size/move it
 	rows, host := p.rows, p.host
 	p.mu.Unlock()
 	pillsMu.Lock()
@@ -307,7 +309,7 @@ func (p *pill) createPill(inst uintptr, class *uint16) {
 	p.updateTooltip(rows)
 	p.lookupStart()
 	p.layout()
-	pShowWindow.Call(h, swShowNoActive)
+	win32.ShowWindow.Call(h, win32.SwShowNoActive)
 }
 
 // lookupStart asks UI Automation where Start is, off the window thread, and
@@ -330,16 +332,16 @@ func (p *pill) lookupStart() {
 		host := p.host
 		p.mu.Unlock()
 		if changed && host != 0 {
-			pPostMessageW.Call(host, msgRelayout, 0, 0)
+			win32.PostMessageW.Call(host, msgRelayout, 0, 0)
 		}
 	}()
 }
 
 // trayLeft is the left edge of the notification area (screen px).
-func trayLeftOf(tb uintptr, tbr rect, s float64) int32 {
+func trayLeftOf(tb uintptr, tbr win32.Rect, s float64) int32 {
 	left := tbr.R - int32(320*s)
-	if tn, _, _ := pFindWindowExW.Call(tb, 0, uintptr(unsafe.Pointer(utf16("TrayNotifyWnd"))), 0); tn != 0 {
-		if r, ok := windowRect(tn); ok && r.L > tbr.L {
+	if tn, _, _ := win32.FindWindowExW.Call(tb, 0, uintptr(unsafe.Pointer(win32.UTF16Ptr("TrayNotifyWnd"))), 0); tn != 0 {
+		if r, ok := win32.WindowRect(tn); ok && r.L > tbr.L {
 			left = r.L
 		}
 	}
@@ -356,17 +358,17 @@ func (p *pill) layout() {
 	if h == 0 {
 		return
 	}
-	tbr, ok := windowRect(tb)
+	tbr, ok := win32.WindowRect(tb)
 	if !ok {
 		return
 	}
-	s := dpiScale(tb)
+	s := win32.DPIScale(tb)
 	px := func(v int) int32 { return int32(float64(v)*s + 0.5) }
 
 	trayLeft := trayLeftOf(tb, tbr, s)
 	w, ht := px(width), px(compactH)
-	if ht > tbr.h()-px(4) {
-		ht = tbr.h() - px(4)
+	if ht > tbr.H()-px(4) {
+		ht = tbr.H() - px(4)
 	}
 	var x int32
 	switch {
@@ -381,8 +383,8 @@ func (p *pill) layout() {
 	}
 	// Stay on the taskbar and off the notification area.
 	x = max(tbr.L+px(4), min(x, trayLeft-px(4)-w))
-	y := tbr.T + (tbr.h()-ht)/2
-	scr := rect{x, y, x + w, y + ht}
+	y := tbr.T + (tbr.H()-ht)/2
+	scr := win32.R(x, y, x+w, y+ht)
 
 	p.mu.Lock()
 	changed := scr != p.screen
@@ -390,27 +392,27 @@ func (p *pill) layout() {
 	p.mu.Unlock()
 
 	// HWND_TOP keeps us above the taskbar's own XAML content.
-	flags := uintptr(swpNoActivate)
+	flags := uintptr(win32.SwpNoActivate)
 	if !changed {
-		flags |= swpNoMove | swpNoSize
+		flags |= win32.SwpNoMove | win32.SwpNoSize
 	}
-	pSetWindowPos.Call(h, hwndTop, uintptr(x-tbr.L), uintptr(y-tbr.T), uintptr(w), uintptr(ht), flags)
+	win32.SetWindowPos.Call(h, win32.HwndTop, uintptr(x-tbr.L), uintptr(y-tbr.T), uintptr(w), uintptr(ht), flags)
 	if changed {
 		r := px(8)
-		rgn, _, _ := pCreateRoundRectRgn.Call(0, 0, uintptr(w+1), uintptr(ht+1), uintptr(r), uintptr(r))
-		pSetWindowRgn.Call(h, rgn, 1)
-		pInvalidateRect.Call(h, 0, 0)
+		rgn, _, _ := win32.CreateRoundRectRgn.Call(0, 0, uintptr(w+1), uintptr(ht+1), uintptr(r), uintptr(r))
+		win32.SetWindowRgn.Call(h, rgn, 1)
+		win32.InvalidateRect.Call(h, 0, 0)
 	}
 }
 
 func hostProc(hwnd, m, wp, lp uintptr) uintptr {
 	p := pillFor(pillByHost, hwnd)
 	if p == nil {
-		r, _, _ := pDefWindowProcW.Call(hwnd, m, wp, lp)
+		r, _, _ := win32.DefWindowProcW.Call(hwnd, m, wp, lp)
 		return r
 	}
 	switch {
-	case m == wmClose:
+	case m == win32.WmClose:
 		p.shutdown(hwnd)
 		return 0
 	case p.secondary && uint32(m) == p.taskbarCreated && p.taskbarCreated != 0:
@@ -420,13 +422,13 @@ func hostProc(hwnd, m, wp, lp uintptr) uintptr {
 		return 0
 	case uint32(m) == p.taskbarCreated && p.taskbarCreated != 0:
 		// Explorer restarted: the old pill died with the old taskbar.
-		dockLog("TaskbarCreated: recreating pill")
+		storage.Log("TaskbarCreated: recreating pill")
 		p.mu.Lock()
 		old := p.hwnd
 		p.hwnd = 0
 		p.mu.Unlock()
 		if old != 0 {
-			pDestroyWindow.Call(old)
+			win32.DestroyWindow.Call(old)
 			pillsMu.Lock()
 			delete(pillByHwnd, old)
 			pillsMu.Unlock()
@@ -447,22 +449,22 @@ func hostProc(hwnd, m, wp, lp uintptr) uintptr {
 		p.mu.Unlock()
 		p.updateTooltip(rows)
 		return 0
-	case m == wmTimer && wp == timerRelayout:
-		pKillTimer.Call(hwnd, timerRelayout)
+	case m == win32.WmTimer && wp == timerRelayout:
+		win32.KillTimer.Call(hwnd, timerRelayout)
 		p.lookupStart()
 		p.layout()
 		// Start slides into place; look again once the animation settled.
-		pSetTimer.Call(hwnd, timerSettle, 700, 0)
+		win32.SetTimer.Call(hwnd, timerSettle, 700, 0)
 		return 0
-	case m == wmTimer && wp == timerSettle:
-		pKillTimer.Call(hwnd, timerSettle)
+	case m == win32.WmTimer && wp == timerSettle:
+		win32.KillTimer.Call(hwnd, timerSettle)
 		p.lookupStart()
 		return 0
-	case m == wmTimer && wp == timerFallback:
+	case m == win32.WmTimer && wp == timerFallback:
 		p.mu.Lock()
 		alive := p.hwnd
 		p.mu.Unlock()
-		if ok, _, _ := pIsWindow.Call(alive); alive == 0 || ok == 0 {
+		if ok, _, _ := win32.IsWindow.Call(alive); alive == 0 || ok == 0 {
 			if p.secondary {
 				p.shutdown(hwnd) // its taskbar is gone; the pill set decides
 				return 0
@@ -473,14 +475,14 @@ func hostProc(hwnd, m, wp, lp uintptr) uintptr {
 			p.layout()
 		}
 		return 0
-	case m == wmDisplayChange || m == wmSettingChange:
+	case m == win32.WmDisplayChange || m == win32.WmSettingChange:
 		// Theme switches arrive as WM_SETTINGCHANGE("ImmersiveColorSet").
 		if refreshTheme() {
 			p.repaint()
 		}
-		pSetTimer.Call(hwnd, timerRelayout, 300, 0)
+		win32.SetTimer.Call(hwnd, timerRelayout, 300, 0)
 	}
-	r, _, _ := pDefWindowProcW.Call(hwnd, m, wp, lp)
+	r, _, _ := win32.DefWindowProcW.Call(hwnd, m, wp, lp)
 	return r
 }
 
@@ -492,21 +494,21 @@ func (p *pill) shutdown(host uintptr) {
 	p.hwnd, p.hook = 0, 0
 	p.mu.Unlock()
 	if hook != 0 {
-		pUnhookWinEvent.Call(hook)
+		win32.UnhookWinEvent.Call(hook)
 	}
 	if p.tip.hwnd != 0 {
-		pDestroyWindow.Call(p.tip.hwnd)
+		win32.DestroyWindow.Call(p.tip.hwnd)
 		p.tip = tooltipState{}
 	}
 	if h != 0 {
-		pDestroyWindow.Call(h)
+		win32.DestroyWindow.Call(h)
 	}
 	pillsMu.Lock()
 	delete(pillByHost, host)
 	delete(pillByHwnd, h)
 	pillsMu.Unlock()
-	pDestroyWindow.Call(host)
-	pPostQuitMessage.Call(0)
+	win32.DestroyWindow.Call(host)
+	win32.PostQuitMessage.Call(0)
 }
 
 // winEventProc: a window in Explorer moved. If it's a taskbar or one of its
@@ -520,9 +522,9 @@ func winEventProc(hook, event, hwnd, idObject, idChild, thread, ms uintptr) uint
 			continue
 		}
 		if hwnd == tb {
-			pSetTimer.Call(host, timerRelayout, 150, 0)
-		} else if ok, _, _ := pIsChild.Call(tb, hwnd); ok != 0 {
-			pSetTimer.Call(host, timerRelayout, 150, 0)
+			win32.SetTimer.Call(host, timerRelayout, 150, 0)
+		} else if ok, _, _ := win32.IsChild.Call(tb, hwnd); ok != 0 {
+			win32.SetTimer.Call(host, timerRelayout, 150, 0)
 		}
 	}
 	return 0
@@ -531,7 +533,7 @@ func winEventProc(hook, event, hwnd, idObject, idChild, thread, ms uintptr) uint
 // msgScreenX converts a mouse message's client x (low word of lParam,
 // signed: it can be negative while captured) to screen px.
 func msgScreenX(hwnd, lp uintptr) int32 {
-	r, _ := windowRect(hwnd)
+	r, _ := win32.WindowRect(hwnd)
 	return r.L + int32(int16(uint16(lp&0xFFFF)))
 }
 
@@ -539,10 +541,10 @@ func msgScreenX(hwnd, lp uintptr) int32 {
 // held right now (honours swapped buttons).
 func primaryButtonDown() bool {
 	vk := uintptr(0x01) // VK_LBUTTON
-	if swapped, _, _ := pGetSystemMetrics.Call(23); swapped != 0 {
+	if swapped, _, _ := win32.GetSystemMetrics.Call(23); swapped != 0 {
 		vk = 0x02
 	}
-	st, _, _ := pGetAsyncKeyState.Call(vk)
+	st, _, _ := win32.GetAsyncKeyState.Call(vk)
 	return st&0x8000 != 0
 }
 
@@ -553,21 +555,21 @@ func (p *pill) finishDrag() {
 	p.mu.Lock()
 	tb, startLeft, scr := p.tb, p.startLeft, p.screen
 	p.mu.Unlock()
-	tbr, ok := windowRect(tb)
+	tbr, ok := win32.WindowRect(tb)
 	if !ok {
 		return
 	}
-	s := dpiScale(tb)
+	s := win32.DPIScale(tb)
 	logical := func(v int32) int { return int(float64(v)/s + 0.5) }
 	anchor, offset := anchorTray, logical(trayLeftOf(tb, tbr, s)-scr.R)
 	if startLeft > 0 && (scr.L+scr.R)/2 < startLeft {
 		anchor, offset = anchorStart, logical(startLeft-scr.R)
 	}
-	dockLog("pill moved: %s offset %d (pill %d..%d, start %d)", anchor, offset, scr.L, scr.R, startLeft)
+	storage.Log("pill moved: %s offset %d (pill %d..%d, start %d)", anchor, offset, scr.L, scr.R, startLeft)
 	p.mu.Lock()
 	p.anchor, p.offset, p.dragging = anchor, offset, false
 	p.mu.Unlock()
-	pReleaseCapture.Call()
+	win32.ReleaseCapture.Call()
 	p.layout()
 	if p.onMoved != nil {
 		go p.onMoved(anchor, offset)
@@ -579,25 +581,25 @@ func (p *pill) repaint() {
 	h := p.hwnd
 	p.mu.Unlock()
 	if h != 0 {
-		pInvalidateRect.Call(h, 0, 0)
+		win32.InvalidateRect.Call(h, 0, 0)
 	}
 }
 
 func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 	p := pillFor(pillByHwnd, hwnd)
 	if p == nil {
-		r, _, _ := pDefWindowProcW.Call(hwnd, m, wp, lp)
+		r, _, _ := win32.DefWindowProcW.Call(hwnd, m, wp, lp)
 		return r
 	}
 	switch m {
-	case wmPaint:
+	case win32.WmPaint:
 		p.paint(hwnd)
 		return 0
-	case wmEraseBkgnd:
+	case win32.WmEraseBkgnd:
 		return 1
-	case wmMouseActivate:
-		return maNoActivate
-	case wmLButtonDown:
+	case win32.WmMouseActivate:
+		return win32.MaNoActivate
+	case win32.WmLButtonDown:
 		// Use the coordinates carried by the message, not the cursor "now":
 		// input routed through Explorer's queue can be handled late.
 		x := msgScreenX(hwnd, lp)
@@ -605,18 +607,18 @@ func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 		p.pressed, p.dragging = true, false
 		p.downX, p.downLeft, p.downAt = x, p.screen.L, time.Now()
 		p.mu.Unlock()
-		pSetCapture.Call(hwnd)
+		win32.SetCapture.Call(hwnd)
 		return 0
-	case wmMouseMove:
+	case win32.WmMouseMove:
 		p.mu.Lock()
 		was := p.hover
 		p.hover = true
 		pressed := p.pressed
 		p.mu.Unlock()
 		if !was {
-			tme := trackMouseEvent{Size: uint32(unsafe.Sizeof(trackMouseEvent{})), Flags: tmeLeave, HwndTrack: hwnd}
-			pTrackMouseEvent.Call(uintptr(unsafe.Pointer(&tme)))
-			pInvalidateRect.Call(hwnd, 0, 0)
+			tme := win32.TrackMouseEventArgs{Size: uint32(unsafe.Sizeof(win32.TrackMouseEventArgs{})), Flags: win32.TmeLeave, HwndTrack: hwnd}
+			win32.TrackMouseEvent.Call(uintptr(unsafe.Pointer(&tme)))
+			win32.InvalidateRect.Call(hwnd, 0, 0)
 		}
 		if pressed && !primaryButtonDown() {
 			// The button was released without us seeing WM_LBUTTONUP: no drag.
@@ -624,7 +626,7 @@ func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 			wasDrag := p.dragging
 			p.pressed, p.dragging = false, false
 			p.mu.Unlock()
-			pReleaseCapture.Call()
+			win32.ReleaseCapture.Call()
 			if wasDrag {
 				p.layout()
 			}
@@ -636,7 +638,7 @@ func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 			dx := x - p.downX
 			// A drag needs real movement while the button is held for a
 			// moment; a click (even a slightly shaky one) never moves the pill.
-			threshold := int32(6 * dpiScale(hwnd))
+			threshold := int32(6 * win32.DPIScale(hwnd))
 			if !p.dragging && (dx > threshold || dx < -threshold) && time.Since(p.downAt) > 150*time.Millisecond {
 				p.dragging = true
 			}
@@ -650,7 +652,7 @@ func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 			}
 		}
 		return 0
-	case wmCaptureChanged:
+	case win32.WmCaptureChanged:
 		// Capture taken away mid-drag (e.g. Start opened): snap back.
 		p.mu.Lock()
 		wasDrag := p.dragging
@@ -660,11 +662,11 @@ func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 			p.layout()
 		}
 		return 0
-	case wmMouseLeave:
+	case win32.WmMouseLeave:
 		p.mu.Lock()
 		p.hover = false
 		p.mu.Unlock()
-		pInvalidateRect.Call(hwnd, 0, 0)
+		win32.InvalidateRect.Call(hwnd, 0, 0)
 		return 0
 	case wmRButtonUp:
 		p.mu.Lock()
@@ -674,7 +676,7 @@ func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 			go p.onMenu(cmd)
 		}
 		return 0
-	case wmLButtonUp:
+	case win32.WmLButtonUp:
 		p.mu.Lock()
 		pressed, dragging := p.pressed, p.dragging
 		p.pressed = false
@@ -683,7 +685,7 @@ func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 			p.finishDrag() // releases capture → WM_CAPTURECHANGED clears state
 			return 0
 		}
-		pReleaseCapture.Call()
+		win32.ReleaseCapture.Call()
 		// The same click can arrive twice (input is routed through Explorer's
 		// queue); one click per 250 ms is plenty.
 		if pressed && time.Since(p.lastClick) > 250*time.Millisecond && p.onClick != nil {
@@ -691,7 +693,7 @@ func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 			go p.onClick(p.screenRect())
 		}
 		return 0
-	case wmDestroy:
+	case win32.WmDestroy:
 		p.mu.Lock()
 		if p.hwnd == hwnd {
 			p.hwnd = 0
@@ -699,7 +701,7 @@ func pillProc(hwnd, m, wp, lp uintptr) uintptr {
 		p.mu.Unlock()
 		return 0
 	}
-	r, _, _ := pDefWindowProcW.Call(hwnd, m, wp, lp)
+	r, _, _ := win32.DefWindowProcW.Call(hwnd, m, wp, lp)
 	return r
 }
 
@@ -715,28 +717,28 @@ func useTheme(t pillTheme) {
 }
 
 func (p *pill) paint(hwnd uintptr) {
-	var ps paintStruct
-	hdc, _, _ := pBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
-	defer pEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
+	var ps win32.PaintStruct
+	hdc, _, _ := win32.BeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
+	defer win32.EndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 	useTheme(currentTheme())
 
 	p.mu.Lock()
 	rows, hover, width := p.rows, p.hover, p.width
 	p.mu.Unlock()
 
-	wr, _ := windowRect(hwnd)
-	W, H := wr.w(), wr.h()
-	s := dpiScale(hwnd)
+	wr, _ := win32.WindowRect(hwnd)
+	W, H := wr.W(), wr.H()
+	s := win32.DPIScale(hwnd)
 	px := func(v float64) int32 { return int32(v*s + 0.5) }
 
 	// Double buffer.
-	mdc, _, _ := pCreateCompatibleDC.Call(hdc)
-	bmp, _, _ := pCreateCompatibleBitmap.Call(hdc, uintptr(W), uintptr(H))
-	oldBmp, _, _ := pSelectObject.Call(mdc, bmp)
+	mdc, _, _ := win32.CreateCompatibleDC.Call(hdc)
+	bmp, _, _ := win32.CreateCompatibleBitmap.Call(hdc, uintptr(W), uintptr(H))
+	oldBmp, _, _ := win32.SelectObject.Call(mdc, bmp)
 	defer func() {
-		pSelectObject.Call(mdc, oldBmp)
-		pDeleteObject.Call(bmp)
-		pDeleteDC.Call(mdc)
+		win32.SelectObject.Call(mdc, oldBmp)
+		win32.DeleteObject.Call(bmp)
+		win32.DeleteDC.Call(mdc)
 	}()
 
 	// Background + border.
@@ -744,8 +746,8 @@ func (p *pill) paint(hwnd uintptr) {
 	if hover {
 		border = colBorderHi
 	}
-	fillRound(mdc, rect{0, 0, W, H}, colBg, border, px(8))
-	pSetBkMode.Call(mdc, 1) // TRANSPARENT
+	fillRound(mdc, win32.R(0, 0, W, H), colBg, border, px(8))
+	win32.SetBkMode.Call(mdc, 1) // TRANSPARENT
 
 	fName := makeFont(px(11), 600)
 	fSmall := makeFont(px(10.5), 400)
@@ -753,14 +755,14 @@ func (p *pill) paint(hwnd uintptr) {
 	fWord := makeFont(px(9.5), 500)
 	defer func() {
 		for _, f := range []uintptr{fName, fSmall, fPct, fWord} {
-			pDeleteObject.Call(f)
+			win32.DeleteObject.Call(f)
 		}
 	}()
 
 	n := int32(len(rows))
 	if n == 0 {
-		drawText(mdc, fSmall, colMuted, "Loading…", rect{0, 0, W, H}, dtCenter)
-		pBitBlt.Call(hdc, 0, 0, uintptr(W), uintptr(H), mdc, 0, 0, 0x00CC0020)
+		drawText(mdc, fSmall, colMuted, "Loading…", win32.R(0, 0, W, H), dtCenter)
+		win32.BitBlt.Call(hdc, 0, 0, uintptr(W), uintptr(H), mdc, 0, 0, 0x00CC0020)
 		return
 	}
 	rowH, rowGap := px(14), px(3)
@@ -777,36 +779,36 @@ func (p *pill) paint(hwnd uintptr) {
 		p.drawLogo(mdc, r.ID, r.Name, x, y, logo)
 		x += logo + cg
 		if nameW > 0 {
-			drawText(mdc, fName, colText, r.Name, rect{x, y, x + nameW, y + rowH}, dtLeft)
+			drawText(mdc, fName, colText, r.Name, win32.R(x, y, x+nameW, y+rowH), dtLeft)
 			x += nameW + cg
 		}
 		pctR := W - pad
 		resetR := pctR - pctW - cg
 		if !r.HasBar {
-			drawText(mdc, fSmall, colMuted, r.NA, rect{x, y, pctR, y + rowH}, dtLeft)
+			drawText(mdc, fSmall, colMuted, r.NA, win32.R(x, y, pctR, y+rowH), dtLeft)
 			continue
 		}
 		barR := resetR - resetW - cg
 		if barR > x {
 			th := max(px(4), 2)
 			ty := y + (rowH-th)/2
-			fillRound(mdc, rect{x, ty, barR, ty + th}, colTrack, colTrack, th)
+			fillRound(mdc, win32.R(x, ty, barR, ty+th), colTrack, colTrack, th)
 			if fw := int32(float64(barR-x) * r.Fill / 100); fw > 0 {
-				fillRound(mdc, rect{x, ty, x + max(fw, th), ty + th}, r.Color, r.Color, th)
+				fillRound(mdc, win32.R(x, ty, x+max(fw, th), ty+th), r.Color, r.Color, th)
 			}
 			// Pace marker: how much of the window's time has passed.
 			if r.Marker >= 0 {
 				mx := x + int32(float64(barR-x-px(2))*r.Marker/100)
-				fillRect(mdc, rect{mx, ty - px(3), mx + max(px(2), 1), ty + th + px(3)}, colMarker)
+				fillRect(mdc, win32.R(mx, ty-px(3), mx+max(px(2), 1), ty+th+px(3)), colMarker)
 			}
 		}
-		drawText(mdc, fSmall, colMuted, r.Reset, rect{resetR - resetW, y, resetR, y + rowH}, dtRight)
+		drawText(mdc, fSmall, colMuted, r.Reset, win32.R(resetR-resetW, y, resetR, y+rowH), dtRight)
 		// "40%" bold + " used" small, right-aligned together.
 		wordW := textWidth(mdc, fWord, r.Word)
-		drawText(mdc, fWord, colMuted, r.Word, rect{pctR - wordW, y + px(1), pctR, y + rowH}, dtRight)
-		drawText(mdc, fPct, colText, itoaPct(r.Value), rect{pctR - pctW, y, pctR - wordW - px(2), y + rowH}, dtRight)
+		drawText(mdc, fWord, colMuted, r.Word, win32.R(pctR-wordW, y+px(1), pctR, y+rowH), dtRight)
+		drawText(mdc, fPct, colText, itoaPct(r.Value), win32.R(pctR-pctW, y, pctR-wordW-px(2), y+rowH), dtRight)
 	}
-	pBitBlt.Call(hdc, 0, 0, uintptr(W), uintptr(H), mdc, 0, 0, 0x00CC0020) // SRCCOPY
+	win32.BitBlt.Call(hdc, 0, 0, uintptr(W), uintptr(H), mdc, 0, 0, 0x00CC0020) // SRCCOPY
 }
 
 func itoaPct(v int) string { return strconv.Itoa(v) + "%" }
@@ -818,72 +820,72 @@ const (
 )
 
 func makeFont(px int32, weight int) uintptr {
-	f, _, _ := pCreateFontW.Call(uintptr(-px), 0, 0, 0, uintptr(weight), 0, 0, 0,
-		1 /*DEFAULT_CHARSET*/, 0, 0, 5 /*CLEARTYPE_QUALITY*/, 0, uintptr(unsafe.Pointer(utf16("Segoe UI"))))
+	f, _, _ := win32.CreateFontW.Call(uintptr(-px), 0, 0, 0, uintptr(weight), 0, 0, 0,
+		1 /*DEFAULT_CHARSET*/, 0, 0, 5 /*CLEARTYPE_QUALITY*/, 0, uintptr(unsafe.Pointer(win32.UTF16Ptr("Segoe UI"))))
 	return f
 }
 
-func drawText(dc, font uintptr, c rgb, s string, r rect, flags uintptr) {
+func drawText(dc, font uintptr, c rgb, s string, r win32.Rect, flags uintptr) {
 	if s == "" {
 		return
 	}
-	old, _, _ := pSelectObject.Call(dc, font)
-	pSetTextColor.Call(dc, colorRef(c))
-	pDrawTextW.Call(dc, uintptr(unsafe.Pointer(utf16(s))), ^uintptr(0), uintptr(unsafe.Pointer(&r)), flags)
-	pSelectObject.Call(dc, old)
+	old, _, _ := win32.SelectObject.Call(dc, font)
+	win32.SetTextColor.Call(dc, colorRef(c))
+	win32.DrawTextW.Call(dc, uintptr(unsafe.Pointer(win32.UTF16Ptr(s))), ^uintptr(0), uintptr(unsafe.Pointer(&r)), flags)
+	win32.SelectObject.Call(dc, old)
 }
 
 func textWidth(dc, font uintptr, s string) int32 {
-	old, _, _ := pSelectObject.Call(dc, font)
-	defer pSelectObject.Call(dc, old)
-	u := utf16(s)
+	old, _, _ := win32.SelectObject.Call(dc, font)
+	defer win32.SelectObject.Call(dc, old)
+	u := win32.UTF16Ptr(s)
 	n := 0
 	for p := unsafe.Pointer(u); *(*uint16)(p) != 0; p = unsafe.Add(p, 2) {
 		n++
 	}
 	var sz struct{ CX, CY int32 }
-	pGetTextExtentPoint32W.Call(dc, uintptr(unsafe.Pointer(u)), uintptr(n), uintptr(unsafe.Pointer(&sz)))
+	win32.GetTextExtentPoint32W.Call(dc, uintptr(unsafe.Pointer(u)), uintptr(n), uintptr(unsafe.Pointer(&sz)))
 	return sz.CX
 }
 
-func fillRect(dc uintptr, r rect, c rgb) {
-	brush, _, _ := pCreateSolidBrush.Call(colorRef(c))
-	pFillRect.Call(dc, uintptr(unsafe.Pointer(&r)), brush)
-	pDeleteObject.Call(brush)
+func fillRect(dc uintptr, r win32.Rect, c rgb) {
+	brush, _, _ := win32.CreateSolidBrush.Call(colorRef(c))
+	win32.FillRect.Call(dc, uintptr(unsafe.Pointer(&r)), brush)
+	win32.DeleteObject.Call(brush)
 }
 
-func fillRound(dc uintptr, r rect, fill, line rgb, radius int32) {
-	brush, _, _ := pCreateSolidBrush.Call(colorRef(fill))
-	pen, _, _ := pCreatePen.Call(0, 1, colorRef(line))
-	ob, _, _ := pSelectObject.Call(dc, brush)
-	op, _, _ := pSelectObject.Call(dc, pen)
-	pRoundRect.Call(dc, uintptr(r.L), uintptr(r.T), uintptr(r.R), uintptr(r.B), uintptr(radius), uintptr(radius))
-	pSelectObject.Call(dc, ob)
-	pSelectObject.Call(dc, op)
-	pDeleteObject.Call(brush)
-	pDeleteObject.Call(pen)
+func fillRound(dc uintptr, r win32.Rect, fill, line rgb, radius int32) {
+	brush, _, _ := win32.CreateSolidBrush.Call(colorRef(fill))
+	pen, _, _ := win32.CreatePen.Call(0, 1, colorRef(line))
+	ob, _, _ := win32.SelectObject.Call(dc, brush)
+	op, _, _ := win32.SelectObject.Call(dc, pen)
+	win32.RoundRect.Call(dc, uintptr(r.L), uintptr(r.T), uintptr(r.R), uintptr(r.B), uintptr(radius), uintptr(radius))
+	win32.SelectObject.Call(dc, ob)
+	win32.SelectObject.Call(dc, op)
+	win32.DeleteObject.Call(brush)
+	win32.DeleteObject.Call(pen)
 }
 
 // drawLogo draws the provider's PNG icon (alpha-blended), or a letter badge.
 func (p *pill) drawLogo(dc uintptr, id, name string, x, y, size int32) {
 	bmp := p.icon(id, size)
 	if bmp == 0 {
-		fillRound(dc, rect{x, y, x + size, y + size}, rgb{85, 85, 90}, rgb{85, 85, 90}, size/4)
+		fillRound(dc, win32.R(x, y, x+size, y+size), rgb{85, 85, 90}, rgb{85, 85, 90}, size/4)
 		letter := "?"
 		if name != "" {
 			letter = name[:1]
 		}
 		f := makeFont(size*2/3, 700)
-		drawText(dc, f, colText, letter, rect{x, y, x + size, y + size}, dtCenter)
-		pDeleteObject.Call(f)
+		drawText(dc, f, colText, letter, win32.R(x, y, x+size, y+size), dtCenter)
+		win32.DeleteObject.Call(f)
 		return
 	}
-	src, _, _ := pCreateCompatibleDC.Call(dc)
-	old, _, _ := pSelectObject.Call(src, bmp)
+	src, _, _ := win32.CreateCompatibleDC.Call(dc)
+	old, _, _ := win32.SelectObject.Call(src, bmp)
 	blend := uintptr(255<<16 | 1<<24) // SourceConstantAlpha=255, AC_SRC_ALPHA
-	pAlphaBlend.Call(dc, uintptr(x), uintptr(y), uintptr(size), uintptr(size), src, 0, 0, uintptr(size), uintptr(size), blend)
-	pSelectObject.Call(src, old)
-	pDeleteDC.Call(src)
+	win32.AlphaBlend.Call(dc, uintptr(x), uintptr(y), uintptr(size), uintptr(size), src, 0, 0, uintptr(size), uintptr(size), blend)
+	win32.SelectObject.Call(src, old)
+	win32.DeleteDC.Call(src)
 }
 
 // icon returns a cached premultiplied 32-bit DIB of the provider logo.
@@ -903,9 +905,9 @@ func (p *pill) icon(id string, size int32) uintptr {
 }
 
 func makeDIB(img image.Image, size int) uintptr {
-	bi := bitmapInfoHeader{Size: uint32(unsafe.Sizeof(bitmapInfoHeader{})), Width: int32(size), Height: -int32(size), Planes: 1, BitCount: 32}
+	bi := win32.BitmapInfoHeader{Size: uint32(unsafe.Sizeof(win32.BitmapInfoHeader{})), Width: int32(size), Height: -int32(size), Planes: 1, BitCount: 32}
 	var bits unsafe.Pointer
-	h, _, _ := pCreateDIBSection.Call(0, uintptr(unsafe.Pointer(&bi)), 0, uintptr(unsafe.Pointer(&bits)), 0, 0)
+	h, _, _ := win32.CreateDIBSection.Call(0, uintptr(unsafe.Pointer(&bi)), 0, uintptr(unsafe.Pointer(&bits)), 0, 0)
 	if h == 0 || bits == nil {
 		return 0
 	}

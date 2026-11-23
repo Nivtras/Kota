@@ -9,6 +9,9 @@ package main
 
 import (
 	"kota/internal/domain"
+	"kota/internal/infrastructure/storage"
+	"kota/internal/infrastructure/system"
+	"kota/internal/infrastructure/win32"
 	"os"
 	"sync"
 	"time"
@@ -21,8 +24,6 @@ var (
 	shell32           = windows.NewLazySystemDLL("shell32.dll")
 	pShellNotifyIconW = shell32.NewProc("Shell_NotifyIconW")
 	pExtractIconW     = shell32.NewProc("ExtractIconW")
-
-	pSHQueryUserNotificationState = shell32.NewProc("SHQueryUserNotificationState")
 )
 
 const (
@@ -32,7 +33,7 @@ const (
 	notifyVersion4                              = 4
 	ninBalloonUserClick                         = 0x0405 // WM_USER + 5
 	trayIconID                                  = 1
-	msgTray                                     = wmApp + 10
+	msgTray                                     = win32.WmApp + 10
 )
 
 type notifyIconData struct {
@@ -81,7 +82,7 @@ func (t *toaster) show(host uintptr, title, body string) {
 	defer t.mu.Unlock()
 	if t.icon == 0 {
 		if exe, err := os.Executable(); err == nil {
-			t.icon, _, _ = pExtractIconW.Call(0, uintptr(unsafe.Pointer(utf16(exe))), 0)
+			t.icon, _, _ = pExtractIconW.Call(0, uintptr(unsafe.Pointer(win32.UTF16Ptr(exe))), 0)
 		}
 	}
 	nid := notifyIconData{Size: uint32(unsafe.Sizeof(notifyIconData{})), Wnd: host, ID: trayIconID}
@@ -91,7 +92,7 @@ func (t *toaster) show(host uintptr, title, body string) {
 		nid.Icon = t.icon
 		copyUTF16(nid.Tip[:], "Kota")
 		if ok, _, _ := pShellNotifyIconW.Call(nimAdd, uintptr(unsafe.Pointer(&nid))); ok == 0 {
-			dockLog("notify: NIM_ADD failed")
+			storage.Log("notify: NIM_ADD failed")
 			return
 		}
 		nid.TimeoutVersion = notifyVersion4
@@ -137,7 +138,7 @@ func notifyUser(title, body string) {
 	if thePill == nil {
 		return
 	}
-	if userBusy() {
+	if system.UserBusy() {
 		holdNotification(title, body)
 		return
 	}
@@ -149,16 +150,6 @@ func showNow(title, body string) {
 	host := thePill.host
 	thePill.mu.Unlock()
 	theToaster.show(host, title, body)
-}
-
-// userBusy reports fullscreen / presentation / game mode
-// (QUNS_BUSY, QUNS_RUNNING_D3D_FULL_SCREEN, QUNS_PRESENTATION_MODE).
-func userBusy() bool {
-	var state int32
-	if hr, _, _ := pSHQueryUserNotificationState.Call(uintptr(unsafe.Pointer(&state))); hr != 0 {
-		return false
-	}
-	return state == 2 || state == 3 || state == 4
 }
 
 var held struct {
@@ -190,7 +181,7 @@ func holdNotification(title, body string) {
 
 func flushWhenFree() {
 	for range time.Tick(10 * time.Second) {
-		if userBusy() {
+		if system.UserBusy() {
 			continue
 		}
 		held.Lock()

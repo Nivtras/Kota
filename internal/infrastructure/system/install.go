@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package system
 
 // Per-user install without admin rights or an installer tool: the exe
 // copies itself to %LOCALAPPDATA%\Programs\Kota, adds a Start menu
@@ -14,6 +14,9 @@ package main
 import (
 	"fmt"
 	"io"
+	"kota/internal/buildinfo"
+	"kota/internal/infrastructure/storage"
+	"kota/internal/infrastructure/win32"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,12 +29,9 @@ import (
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
-
-	"kota/providers"
 )
 
 const (
-	appVersion     = "1.1.0"
 	appDisplayName = "Kota"
 	uninstallKey   = `Software\Microsoft\Windows\CurrentVersion\Uninstall\Kota`
 	exeFileName    = "Kota.exe"
@@ -39,8 +39,7 @@ const (
 )
 
 var (
-	pMessageBoxW    = user32.NewProc("MessageBoxW")
-	pCoUninitialize = ole32.NewProc("CoUninitialize")
+	pMessageBoxW = win32.User32.NewProc("MessageBoxW")
 )
 
 const (
@@ -54,7 +53,7 @@ const (
 )
 
 func messageBox(text string, flags uintptr) int {
-	r, _, _ := pMessageBoxW.Call(0, uintptr(unsafe.Pointer(utf16(text))), uintptr(unsafe.Pointer(utf16(appDisplayName))), flags)
+	r, _, _ := pMessageBoxW.Call(0, uintptr(unsafe.Pointer(win32.UTF16Ptr(text))), uintptr(unsafe.Pointer(win32.UTF16Ptr(appDisplayName))), flags)
 	return int(r)
 }
 
@@ -81,7 +80,7 @@ func samePath(a, b string) bool {
 
 // handleInstall runs before the app starts. It returns true when this
 // process should exit (it installed and relaunched, or uninstalled).
-func handleInstall() bool {
+func HandleInstall() bool {
 	args := os.Args[1:]
 	for _, a := range args {
 		if a == "--uninstall" {
@@ -103,7 +102,8 @@ func handleInstall() bool {
 			return false
 		}
 	}
-	cfg := loadConfig()
+	prefs := storage.NewPreferencesStore(storage.Path("config.json"))
+	cfg := prefs.Load()
 	if samePath(cfg.PortablePath, self) {
 		return false // the user chose to run this copy as is
 	}
@@ -117,7 +117,7 @@ func handleInstall() bool {
 		"(uninstall from Settings → Apps). No admin rights needed.\n\n" +
 		"Yes: install    No: run it from here"
 	if installed {
-		q = "Kota is already installed.\n\nUpdate the installed copy to version " + appVersion + "?\n" +
+		q = "Kota is already installed.\n\nUpdate the installed copy to version " + buildinfo.Version + "?\n" +
 			"A running copy will be restarted. Your settings are kept.\n\n" +
 			"Yes: update    No: run this copy from here"
 	}
@@ -125,7 +125,7 @@ func handleInstall() bool {
 	case idYes:
 	case idNo:
 		cfg.PortablePath = self
-		saveConfig(cfg)
+		prefs.Save(cfg)
 		return false
 	default:
 		return true
@@ -152,15 +152,15 @@ func install(self string) error {
 		return err
 	}
 	if err := createShortcut(shortcutPath(), installedExe()); err != nil {
-		dockLog("install: shortcut: %v", err)
+		storage.Log("install: shortcut: %v", err)
 	}
 	if err := writeUninstallEntry(dir); err != nil {
-		dockLog("install: uninstall entry: %v", err)
+		storage.Log("install: uninstall entry: %v", err)
 	}
-	if autostartEnabled() { // point "Start with Windows" at the installed copy
+	if AutostartEnabled() { // point "Start with Windows" at the installed copy
 		_ = setAutostartPath(installedExe())
 	}
-	dockLog("installed %s to %s", appVersion, dir)
+	storage.Log("installed %s to %s", buildinfo.Version, dir)
 	return nil
 }
 
@@ -219,18 +219,18 @@ const (
 func createShortcut(lnk, target string) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	if hr, _, _ := pCoInitializeEx.Call(0, coinitApartment); int32(hr) >= 0 {
-		defer pCoUninitialize.Call()
+	if hr, _, _ := win32.CoInitializeEx.Call(0, coinitApartment); int32(hr) >= 0 {
+		defer win32.CoUninitialize.Call()
 	} else if uint32(hr) != rpcEChangedMode {
 		return fmt.Errorf("CoInitializeEx: 0x%x", uint32(hr))
 	}
 	var link unsafe.Pointer
-	if hr, _, _ := pCoCreateInstance.Call(uintptr(unsafe.Pointer(&clsidShellLink)), 0, clsctxInprocServer,
+	if hr, _, _ := win32.CoCreateInstance.Call(uintptr(unsafe.Pointer(&clsidShellLink)), 0, win32.ClsctxInprocServer,
 		uintptr(unsafe.Pointer(&iidIShellLinkW)), uintptr(unsafe.Pointer(&link))); int32(hr) < 0 || link == nil {
 		return fmt.Errorf("ShellLink: 0x%x", uint32(hr))
 	}
-	defer comRelease(link)
-	str := func(v string) uintptr { return uintptr(unsafe.Pointer(utf16(v))) }
+	defer win32.ComRelease(link)
+	str := func(v string) uintptr { return uintptr(unsafe.Pointer(win32.UTF16Ptr(v))) }
 	for _, c := range []struct {
 		slot int
 		args []uintptr
@@ -240,16 +240,16 @@ func createShortcut(lnk, target string) error {
 		{vtSetDescription, []uintptr{str("AI usage limits on the taskbar")}},
 		{vtSetIconLocation, []uintptr{str(target), 0}},
 	} {
-		if hr := comCall(link, c.slot, c.args...); int32(hr) < 0 {
+		if hr := win32.ComCall(link, c.slot, c.args...); int32(hr) < 0 {
 			return fmt.Errorf("IShellLink slot %d: 0x%x", c.slot, uint32(hr))
 		}
 	}
 	var pf unsafe.Pointer
-	if hr := comCall(link, vtQueryInterface, uintptr(unsafe.Pointer(&iidIPersistFile)), uintptr(unsafe.Pointer(&pf))); int32(hr) < 0 || pf == nil {
+	if hr := win32.ComCall(link, vtQueryInterface, uintptr(unsafe.Pointer(&iidIPersistFile)), uintptr(unsafe.Pointer(&pf))); int32(hr) < 0 || pf == nil {
 		return fmt.Errorf("IPersistFile: 0x%x", uint32(hr))
 	}
-	defer comRelease(pf)
-	if hr := comCall(pf, vtPersistFileSave, str(lnk), 1); int32(hr) < 0 {
+	defer win32.ComRelease(pf)
+	if hr := win32.ComCall(pf, vtPersistFileSave, str(lnk), 1); int32(hr) < 0 {
 		return fmt.Errorf("save shortcut: 0x%x", uint32(hr))
 	}
 	if _, err := os.Stat(lnk); err != nil {
@@ -271,7 +271,7 @@ func writeUninstallEntry(dir string) error {
 	}
 	for name, v := range map[string]string{
 		"DisplayName":     appDisplayName,
-		"DisplayVersion":  appVersion,
+		"DisplayVersion":  buildinfo.Version,
 		"Publisher":       appDisplayName,
 		"DisplayIcon":     exe,
 		"InstallLocation": dir,
@@ -293,10 +293,10 @@ func uninstall() {
 	}
 	self, _ := os.Executable()
 	stopInstances(installedExe())
-	_ = setAutostart(false)
+	_ = SetAutostart(false)
 	_ = os.Remove(shortcutPath())
 	_ = registry.DeleteKey(registry.CURRENT_USER, uninstallKey)
-	data := filepath.Dir(configPath())
+	data := storage.DataDir()
 	removeData := messageBox("Also delete settings and history ("+data+")?", mbYesNo|mbIconQ) == idYes
 	// This exe can't delete itself while running: a hidden cmd removes the
 	// folder a moment after we exit.
@@ -359,14 +359,8 @@ func waitForExit(pid uint32, limit time.Duration) {
 
 // migrateFromOldName carries settings, caches and history over from the
 // app's old name (AI Usage Widget) and moves its autostart entry.
-func migrateFromOldName() {
-	newDir := providers.DataDir()
-	oldDir := filepath.Join(filepath.Dir(newDir), "AIUsageWidget")
-	if _, err := os.Stat(newDir); os.IsNotExist(err) {
-		if _, err := os.Stat(oldDir); err == nil {
-			_ = os.Rename(oldDir, newDir)
-		}
-	}
+func MigrateOldName() {
+	storage.MigrateOldFolder()
 	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.QUERY_VALUE|registry.SET_VALUE)
 	if err != nil {
 		return
@@ -374,6 +368,6 @@ func migrateFromOldName() {
 	defer k.Close()
 	if _, _, err := k.GetStringValue("AIUsageWidget"); err == nil {
 		_ = k.DeleteValue("AIUsageWidget")
-		_ = setAutostart(true) // now points at this exe, under the new name
+		_ = SetAutostart(true) // now points at this exe, under the new name
 	}
 }

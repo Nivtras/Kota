@@ -2,6 +2,7 @@ package providers
 
 import (
 	"encoding/json"
+	"kota/internal/infrastructure/storage"
 	"os"
 	"path/filepath"
 	"sync"
@@ -9,16 +10,7 @@ import (
 
 var cacheMu sync.Mutex
 
-// DataDir is where Kota keeps settings, caches and history (%APPDATA%\Kota).
-func DataDir() string {
-	d, err := os.UserConfigDir()
-	if err != nil {
-		d = "."
-	}
-	return filepath.Join(d, "Kota")
-}
-
-func cachePath(name string) string { return filepath.Join(DataDir(), name) }
+func cachePath(name string) string { return storage.Path(name) }
 
 // loadJSON reads %APPDATA%\Kota\<name>; a missing file yields T's zero value.
 func loadJSON[T any](name string) T {

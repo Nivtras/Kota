@@ -1,20 +1,21 @@
 //go:build windows
 
-package main
+package system
 
 import (
+	"kota/internal/infrastructure/win32"
 	"time"
 	"unsafe"
 )
 
 var (
-	pGetLastInputInfo = user32.NewProc("GetLastInputInfo")
-	pGetTickCount     = kernel32.NewProc("GetTickCount")
+	pGetLastInputInfo = win32.User32.NewProc("GetLastInputInfo")
+	pGetTickCount     = win32.Kernel32.NewProc("GetTickCount")
 )
 
 // userIdle is the time since the last keyboard/mouse input. It keeps
 // growing while the session is locked, so a locked PC counts as idle.
-func userIdle() time.Duration {
+func UserIdle() time.Duration {
 	var lii struct {
 		Size uint32
 		Time uint32

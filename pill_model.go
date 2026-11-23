@@ -20,6 +20,9 @@ var (
 	colBad  = rgb{242, 109, 109}
 )
 
+// colorRef is a GDI COLORREF.
+func colorRef(c rgb) uintptr { return uintptr(c.R) | uintptr(c.G)<<8 | uintptr(c.B)<<16 }
+
 func usageColor(used float64) rgb {
 	switch domain.LevelOf(used) {
 	case domain.LevelBad:

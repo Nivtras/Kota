@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"kota/internal/infrastructure/system"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -13,11 +14,11 @@ import (
 var assets embed.FS
 
 func main() {
-	migrateFromOldName() // AI Usage Widget → Kota (install_windows.go)
-	if handleInstall() { // install / update / uninstall (install_windows.go)
+	system.MigrateOldName()     // AI Usage Widget → Kota (install_windows.go)
+	if system.HandleInstall() { // install / update / uninstall (install_windows.go)
 		return
 	}
-	repairAutostart() // the exe may have moved since autostart was turned on
+	system.RepairAutostart() // the exe may have moved since autostart was turned on
 	app := NewApp()
 	// The Wails window is the panel only; the taskbar pill is a separate
 	// native window (pill_windows.go).

@@ -1,11 +1,12 @@
 //go:build windows
 
-package main
+package system
 
 // "Start with Windows": a value under the per-user Run key. Nothing is
 // written unless the user turns the setting on.
 
 import (
+	"kota/internal/infrastructure/storage"
 	"os"
 	"strings"
 
@@ -17,7 +18,7 @@ const (
 	runValueName = "Kota"
 )
 
-func autostartEnabled() bool {
+func AutostartEnabled() bool {
 	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.QUERY_VALUE)
 	if err != nil {
 		return false
@@ -27,7 +28,7 @@ func autostartEnabled() bool {
 	return err == nil
 }
 
-func setAutostart(on bool) error {
+func SetAutostart(on bool) error {
 	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
 	if err != nil {
 		return err
@@ -55,7 +56,7 @@ func setAutostart(on bool) error {
 // Windows silently skips a Run entry whose file is missing, so without this
 // the app would just stop starting at login. An entry pointing at another
 // copy that still exists is left alone.
-func repairAutostart() {
+func RepairAutostart() {
 	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.QUERY_VALUE)
 	if err != nil {
 		return
@@ -74,8 +75,8 @@ func repairAutostart() {
 	if _, err := os.Stat(target); err == nil {
 		return
 	}
-	if err := setAutostart(true); err == nil {
-		dockLog("autostart: %s was missing; now points at this exe", target)
+	if err := SetAutostart(true); err == nil {
+		storage.Log("autostart: %s was missing; now points at this exe", target)
 	}
 }
 
