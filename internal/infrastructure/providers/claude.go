@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"kota/internal/buildinfo"
 	"kota/internal/domain"
 	"kota/internal/infrastructure/storage"
 	"net/http"
@@ -320,7 +321,7 @@ func fetchClaudeLimits(ctx context.Context, token string) ([]domain.Bar, error) 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, claudeUsageURL, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-	req.Header.Set("User-Agent", "Kota/1.1")
+	req.Header.Set("User-Agent", buildinfo.Name+"/"+buildinfo.Version)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"kota/internal/buildinfo"
 	"kota/internal/domain"
 	"net/http"
 	"os"
@@ -203,7 +204,7 @@ func fetchCodexUsage(ctx context.Context, token, account string) (*codexUsage, e
 	if account != "" {
 		req.Header.Set("ChatGPT-Account-Id", account)
 	}
-	req.Header.Set("User-Agent", "Kota/1.1")
+	req.Header.Set("User-Agent", buildinfo.Name+"/"+buildinfo.Version)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err

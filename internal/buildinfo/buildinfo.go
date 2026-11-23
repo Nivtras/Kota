@@ -3,6 +3,6 @@ package buildinfo
 
 const (
 	Name    = "Kota"
-	Version = "1.1.0"
+	Version = "1.2.0"
 	Repo    = "Nivtras/Kota" // GitHub owner/name releases are published to
 )
