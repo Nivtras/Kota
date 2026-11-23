@@ -7,20 +7,6 @@ import (
 	"testing"
 )
 
-func TestNewerVersion(t *testing.T) {
-	for _, c := range []struct {
-		tag, cur string
-		want     bool
-	}{
-		{"v1.2.0", "1.1.0", true}, {"1.1.1", "1.1.0", true}, {"v2.0", "1.9.9", true},
-		{"v1.1.0", "1.1.0", false}, {"v1.0.9", "1.1.0", false}, {"v1.2.0-beta", "1.2.0", false}, {"", "1.1.0", false},
-	} {
-		if got := newerVersion(c.tag, c.cur); got != c.want {
-			t.Errorf("newerVersion(%q, %q) = %v", c.tag, c.cur, got)
-		}
-	}
-}
-
 func TestLatestRelease(t *testing.T) {
 	body := ""
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(body)) }))

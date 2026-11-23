@@ -26,14 +26,13 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"kota/internal/domain"
 )
 
 const (
-	defaultCompactW = 200 // logical px
-	minCompactW     = 180
-	maxCompactW     = 320
-	compactH        = 40
-	gap             = 8
+	compactH = 40
+	gap      = 8
 
 	timerFallback = 1 // periodic re-layout
 	timerRelayout = 2 // debounced re-layout after a taskbar change
@@ -42,13 +41,6 @@ const (
 	msgRelayout = wmApp + 1 // re-layout + repaint (posted from any thread)
 	msgRepaint  = wmApp + 2 // repaint only
 )
-
-func clampWidth(w int) int {
-	if w == 0 {
-		return defaultCompactW
-	}
-	return max(minCompactW, min(maxCompactW, w))
-}
 
 type pill struct {
 	mu        sync.Mutex
@@ -141,7 +133,7 @@ func newPill(width int, anchor string, offset int, logos map[string][]byte,
 	if anchor != anchorTray {
 		anchor = anchorStart
 	}
-	p := &pill{width: clampWidth(width), anchor: anchor, offset: offset, logos: logos,
+	p := &pill{width: domain.ClampWidth(width), anchor: anchor, offset: offset, logos: logos,
 		onClick: onClick, onMoved: onMoved, icons: map[iconKey]uintptr{}}
 	thePill = p
 	go p.loop()
@@ -196,7 +188,7 @@ func (p *pill) setRows(rows []pillRow) {
 
 func (p *pill) setWidth(w int) {
 	p.mu.Lock()
-	p.width = clampWidth(w)
+	p.width = domain.ClampWidth(w)
 	h := p.host
 	p.mu.Unlock()
 	if h != 0 {

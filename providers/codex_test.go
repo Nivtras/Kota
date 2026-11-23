@@ -2,6 +2,7 @@ package providers
 
 import (
 	"fmt"
+	"kota/internal/domain"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +39,7 @@ func TestCodexLocalTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []TokenWindow{
+	want := []domain.TokenWindow{
 		{Label: "Last 5h", Input: "2.0K", Output: "200", Total: "2.2K"},
 		{Label: "Last 7d", Input: "3.0K", Output: "300", Total: "3.3K"},
 	}

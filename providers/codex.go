@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"kota/internal/domain"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -52,13 +53,13 @@ type codexUsage struct {
 }
 
 type codexCache struct {
-	Groups      []Group       `json:"groups"`
-	Plan        string        `json:"plan"`
-	FetchedAt   time.Time     `json:"fetchedAt"`
-	NextAllowed time.Time     `json:"nextAllowed"`
-	Backoff     time.Duration `json:"backoff"`
-	LastErr     string        `json:"lastErr"`
-	RateLimited bool          `json:"rateLimited"`
+	Groups      []domain.Group `json:"groups"`
+	Plan        string         `json:"plan"`
+	FetchedAt   time.Time      `json:"fetchedAt"`
+	NextAllowed time.Time      `json:"nextAllowed"`
+	Backoff     time.Duration  `json:"backoff"`
+	LastErr     string         `json:"lastErr"`
+	RateLimited bool           `json:"rateLimited"`
 }
 
 func codexDir() string {
@@ -76,7 +77,7 @@ func (c *Codex) Installed() bool {
 	return err == nil
 }
 
-func (c *Codex) Fetch(ctx context.Context) Usage {
+func (c *Codex) Fetch(ctx context.Context) domain.Usage {
 	u := newUsage(c)
 	if tw, err := codexLocalTokens(); err == nil {
 		u.Tokens = tw
@@ -84,7 +85,7 @@ func (c *Codex) Fetch(ctx context.Context) Usage {
 	cache := loadJSON[codexCache](codexCacheFile)
 	u.Plan = cache.Plan
 
-	stale := func(msg string) Usage {
+	stale := func(msg string) domain.Usage {
 		if len(cache.Groups) > 0 {
 			u.Groups = cache.Groups
 			u.Note = fmt.Sprintf("%s — showing data from %s.", msg, cache.FetchedAt.Local().Format("Jan 2 15:04"))
@@ -94,7 +95,7 @@ func (c *Codex) Fetch(ctx context.Context) Usage {
 		return u
 	}
 
-	var cachedBars []Bar
+	var cachedBars []domain.Bar
 	for _, g := range cache.Groups {
 		cachedBars = append(cachedBars, g.Bars...)
 	}
@@ -222,25 +223,25 @@ func fetchCodexUsage(ctx context.Context, token, account string) (*codexUsage, e
 	return &u, nil
 }
 
-func codexGroups(d *codexUsage) []Group {
-	var groups []Group
+func codexGroups(d *codexUsage) []domain.Group {
+	var groups []domain.Group
 	add := func(name string, rl *codexRateLimit) {
 		if rl == nil {
 			return
 		}
-		var bars []Bar
+		var bars []domain.Bar
 		for _, w := range []*codexWindow{rl.PrimaryWindow, rl.SecondaryWindow} {
 			if w == nil || w.UsedPercent == nil {
 				continue
 			}
-			b := Bar{Label: windowLabel(w.LimitWindowSeconds), UsedPct: clamp(*w.UsedPercent), WindowSec: w.LimitWindowSeconds}
+			b := domain.Bar{Label: windowLabel(w.LimitWindowSeconds), UsedPct: clamp(*w.UsedPercent), WindowSec: w.LimitWindowSeconds}
 			if w.ResetAt > 0 && *w.UsedPercent > 0 {
 				b.ResetsAt = time.Unix(w.ResetAt, 0).UTC().Format(time.RFC3339)
 			}
 			bars = append(bars, b)
 		}
 		if len(bars) > 0 {
-			groups = append(groups, Group{Name: name, Bars: bars})
+			groups = append(groups, domain.Group{Name: name, Bars: bars})
 		}
 	}
 	add("", d.RateLimit)
@@ -258,7 +259,7 @@ func codexGroups(d *codexUsage) []Group {
 // codexLocalTokens sums token usage from Codex session logs
 // (~/.codex/sessions/**/rollout-*.jsonl). Each model response writes a
 // token_count event whose last_token_usage is that response's usage.
-func codexLocalTokens() ([]TokenWindow, error) {
+func codexLocalTokens() ([]domain.TokenWindow, error) {
 	now := time.Now()
 	since7 := now.Add(-7 * 24 * time.Hour)
 	since5h := now.Add(-5 * time.Hour)
@@ -324,7 +325,7 @@ func codexLocalTokens() ([]TokenWindow, error) {
 			return nil
 		})
 	}
-	return []TokenWindow{
+	return []domain.TokenWindow{
 		tokenWindow("Last 5h", w5.in, w5.out),
 		tokenWindow("Last 7d", w7.in, w7.out),
 	}, nil

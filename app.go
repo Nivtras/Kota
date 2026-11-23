@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"kota/internal/domain"
 	"path/filepath"
 	"sync"
 	"time"
@@ -30,7 +31,7 @@ type App struct {
 	panel *panel
 
 	dataMu    sync.Mutex
-	last      []providers.Usage
+	last      []domain.Usage
 	fetching  chan struct{} // non-nil while a fetch runs; closed when done
 	fetchedAt time.Time
 	kick      chan struct{} // asks the refresh loop to fetch now
@@ -54,7 +55,7 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.panel.onShown = func() {
 		runtime.EventsEmit(ctx, eventShown)
-		a.refreshIfStale(staleOnOpen)
+		a.refreshIfStale(domain.StaleOnOpen)
 	}
 	offset := defaultOffset
 	if a.cfg.PillOffset != nil {
@@ -137,7 +138,7 @@ func (a *App) refreshLoop() {
 	var nextAt time.Time
 	fetchNow := func() {
 		a.fetch()
-		nextAt = time.Now().Add(refreshDelay(userIdle(), a.snapshot(), time.Now()))
+		nextAt = time.Now().Add(domain.RefreshDelay(userIdle(), a.snapshot(), time.Now()))
 	}
 	fetchNow()
 	wasIdle := false
@@ -151,7 +152,7 @@ func (a *App) refreshLoop() {
 			fetchNow()
 		case <-repaint.C:
 			timer.Stop()
-			idle := userIdle() >= idleAfter
+			idle := userIdle() >= domain.IdleAfter
 			if wasIdle && !idle {
 				fetchNow() // back at the keyboard: show fresh numbers
 			} else {
@@ -177,7 +178,7 @@ func (a *App) refreshIfStale(d time.Duration) {
 }
 
 // fetch queries all providers in parallel. Concurrent callers share one run.
-func (a *App) fetch() []providers.Usage {
+func (a *App) fetch() []domain.Usage {
 	a.dataMu.Lock()
 	if ch := a.fetching; ch != nil {
 		a.dataMu.Unlock()
@@ -189,7 +190,7 @@ func (a *App) fetch() []providers.Usage {
 	a.dataMu.Unlock()
 
 	ps := providers.All()
-	out := make([]providers.Usage, len(ps))
+	out := make([]domain.Usage, len(ps))
 	var wg sync.WaitGroup
 	for i, p := range ps {
 		wg.Add(1)
@@ -237,7 +238,7 @@ func (a *App) SetNotifications(on bool) {
 // SetNotifyLevels sets the warning and critical thresholds (% used) and
 // returns the values actually stored (kept 50 ≤ warn < critical ≤ 100).
 func (a *App) SetNotifyLevels(warn, critical int) []int {
-	warn, critical = normLevels(warn, critical)
+	warn, critical = domain.NormLevels(warn, critical)
 	a.cfgMu.Lock()
 	a.cfg.NotifyWarn, a.cfg.NotifyCrit = warn, critical
 	saveConfig(a.cfg)
@@ -249,13 +250,13 @@ func (a *App) SetNotifyLevels(warn, critical int) []int {
 // TestNotification shows a sample notification (settings button).
 func (a *App) TestNotification() {
 	a.cfgMu.Lock()
-	w, c := normLevels(a.cfg.NotifyWarn, a.cfg.NotifyCrit)
+	w, c := domain.NormLevels(a.cfg.NotifyWarn, a.cfg.NotifyCrit)
 	a.cfgMu.Unlock()
 	notifyUser("Kota notifications are on",
 		fmt.Sprintf("You'll be told at %d%% and %d%% of a limit, and when it's available again.", w, c))
 }
 
-func (a *App) snapshot() []providers.Usage {
+func (a *App) snapshot() []domain.Usage {
 	a.dataMu.Lock()
 	defer a.dataMu.Unlock()
 	return a.last
@@ -274,7 +275,7 @@ func (a *App) updatePill() {
 // ---------- bound to the UI ----------
 
 // GetUsage returns the latest data (fetching once if there is none yet).
-func (a *App) GetUsage() []providers.Usage {
+func (a *App) GetUsage() []domain.Usage {
 	if d := a.snapshot(); d != nil {
 		return d
 	}
@@ -317,19 +318,19 @@ func (a *App) SetUpdateCheck(on bool) {
 }
 
 // GetHistory returns the last 7 days of the charted limits per provider.
-func (a *App) GetHistory() []ProviderHistory {
+func (a *App) GetHistory() []domain.ProviderHistory {
 	return a.hist.forProviders(a.snapshot(), time.Now())
 }
 
 // Refresh fetches fresh data now.
-func (a *App) Refresh() []providers.Usage { return a.fetch() }
+func (a *App) Refresh() []domain.Usage { return a.fetch() }
 
 // HidePanel closes the panel (blur, Esc, collapse button).
 func (a *App) HidePanel() { a.panel.hideFromUI() }
 
 // SetCompactWidth resizes the taskbar pill (logical px); save=true persists it.
 func (a *App) SetCompactWidth(w int, save bool) {
-	w = clampWidth(w)
+	w = domain.ClampWidth(w)
 	a.cfgMu.Lock()
 	a.cfg.CompactWidth = w
 	if save {
@@ -381,14 +382,14 @@ type Settings struct {
 func (a *App) GetSettings() Settings {
 	s := Settings{
 		Taskbar: a.cfg.Taskbar, Display: a.cfg.Display,
-		Width: clampWidth(a.cfg.CompactWidth), MinWidth: minCompactW, MaxWidth: maxCompactW,
+		Width: domain.ClampWidth(a.cfg.CompactWidth), MinWidth: domain.MinWidth, MaxWidth: domain.MaxWidth,
 		Autostart: autostartEnabled(),
 		Notify:    !a.cfg.NotifyOff,
 		Follow:    a.cfg.FollowActive,
 		Multi:     a.cfg.AllMonitors,
 		Update:    !a.cfg.UpdateCheckOff,
 	}
-	s.Warn, s.Critical = normLevels(a.cfg.NotifyWarn, a.cfg.NotifyCrit)
+	s.Warn, s.Critical = domain.NormLevels(a.cfg.NotifyWarn, a.cfg.NotifyCrit)
 	if s.Display != "remaining" {
 		s.Display = "used"
 	}

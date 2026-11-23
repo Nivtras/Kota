@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"kota/internal/domain"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -57,7 +58,7 @@ func claudeDir() string {
 
 func credsPath() string { return filepath.Join(claudeDir(), ".credentials.json") }
 
-func (c *Claude) Fetch(ctx context.Context) Usage {
+func (c *Claude) Fetch(ctx context.Context) domain.Usage {
 	u := newUsage(c)
 
 	if tw, err := claudeLocalStats(); err == nil {
@@ -67,7 +68,7 @@ func (c *Claude) Fetch(ctx context.Context) Usage {
 	cache := loadClaudeCache()
 	showCache := func(note string) {
 		if len(cache.Bars) > 0 {
-			u.Groups = []Group{{Bars: cache.Bars}}
+			u.Groups = []domain.Group{{Bars: cache.Bars}}
 			u.Note = note
 		} else {
 			u.Error = note
@@ -89,7 +90,7 @@ func (c *Claude) Fetch(ctx context.Context) Usage {
 			showCache(fmt.Sprintf("%s — showing data from %s, retrying in %s.",
 				cache.LastErr, cache.FetchedAt.Local().Format("15:04"), shortDur(time.Until(cache.NextAllowed))))
 		} else {
-			u.Groups = []Group{{Bars: cache.Bars}}
+			u.Groups = []domain.Group{{Bars: cache.Bars}}
 		}
 		return u
 	}
@@ -127,7 +128,7 @@ func (c *Claude) Fetch(ctx context.Context) Usage {
 	}
 	cache = claudeCache{Bars: bars, Plan: u.Plan, FetchedAt: time.Now(), NextAllowed: time.Now().Add(claudeMinInterval)}
 	saveClaudeCache(cache)
-	u.Groups = []Group{{Bars: bars}}
+	u.Groups = []domain.Group{{Bars: bars}}
 	return u
 }
 
@@ -140,7 +141,7 @@ const (
 // claudeCache keeps the last good limits on disk so a 429 or restart never
 // blanks the widget, and so we respect backoff across restarts.
 type claudeCache struct {
-	Bars        []Bar         `json:"bars"`
+	Bars        []domain.Bar  `json:"bars"`
 	Plan        string        `json:"plan"`
 	FetchedAt   time.Time     `json:"fetchedAt"`
 	NextAllowed time.Time     `json:"nextAllowed"`
@@ -153,7 +154,7 @@ type claudeCache struct {
 const transientRetry = time.Minute
 
 // anyResetPassed reports whether a bar's window has reset since it was fetched.
-func anyResetPassed(bars []Bar) bool {
+func anyResetPassed(bars []domain.Bar) bool {
 	now := time.Now()
 	for _, b := range bars {
 		if t, err := time.Parse(time.RFC3339, b.ResetsAt); err == nil && !t.After(now) {
@@ -314,7 +315,7 @@ func refreshClaude(ctx context.Context, o *claudeOauth) error {
 	return nil
 }
 
-func fetchClaudeLimits(ctx context.Context, token string) ([]Bar, error) {
+func fetchClaudeLimits(ctx context.Context, token string) ([]domain.Bar, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, claudeUsageURL, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
@@ -345,13 +346,13 @@ func fetchClaudeLimits(ctx context.Context, token string) ([]Bar, error) {
 		{"seven_day_opus", "Weekly · Opus", week},
 		{"seven_day_sonnet", "Weekly · Sonnet", week},
 	}
-	var bars []Bar
+	var bars []domain.Bar
 	for _, w := range order {
 		var cw claudeWindow
 		if json.Unmarshal(data[w.key], &cw) != nil || cw.Utilization == nil {
 			continue
 		}
-		b := Bar{Label: w.label, UsedPct: clamp(*cw.Utilization), WindowSec: w.window}
+		b := domain.Bar{Label: w.label, UsedPct: clamp(*cw.Utilization), WindowSec: w.window}
 		if cw.ResetsAt != nil {
 			b.ResetsAt = *cw.ResetsAt
 		}
@@ -426,7 +427,7 @@ func parseClaudeLog(path string) []claudeRecord {
 	return out
 }
 
-func claudeLocalStats() ([]TokenWindow, error) {
+func claudeLocalStats() ([]domain.TokenWindow, error) {
 	root := filepath.Join(claudeDir(), "projects")
 	now := time.Now()
 	since7 := now.Add(-7 * 24 * time.Hour)
@@ -473,7 +474,7 @@ func claudeLocalStats() ([]TokenWindow, error) {
 			delete(claudeScanCache, p)
 		}
 	}
-	return []TokenWindow{
+	return []domain.TokenWindow{
 		tokenWindow("Last 5h", w5.in, w5.out),
 		tokenWindow("Last 7d", w7.in, w7.out),
 	}, nil

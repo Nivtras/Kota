@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"kota/internal/domain"
 	"net/http"
 	"os"
 	"os/exec"
@@ -86,7 +87,7 @@ var agCached *agEndpoint
 
 // Fetch order: running app (language server) → `agy` CLI (works with the app
 // closed, read-only, no quota spent) → last saved data.
-func (a *Antigravity) Fetch(ctx context.Context) Usage {
+func (a *Antigravity) Fetch(ctx context.Context) domain.Usage {
 	u := newUsage(a)
 	u.Tokens = antigravityLocalTokens()
 	cache := loadJSON[agCache]("antigravity-cache.json")
@@ -126,7 +127,7 @@ func (a *Antigravity) Fetch(ctx context.Context) Usage {
 
 	now := time.Now()
 	for _, g := range qs.Response.Groups {
-		grp := Group{Name: g.DisplayName, Tooltip: g.Description}
+		grp := domain.Group{Name: g.DisplayName, Tooltip: g.Description}
 		for _, b := range g.Buckets {
 			if b.RemainingFraction == nil {
 				continue
@@ -139,7 +140,7 @@ func (a *Antigravity) Fetch(ctx context.Context) Usage {
 			if used < 0.5 {
 				reset = "" // untouched window: reset time is meaningless
 			}
-			grp.Bars = append(grp.Bars, Bar{
+			grp.Bars = append(grp.Bars, domain.Bar{
 				Label:     bucketLabel(b.Window, b.DisplayName),
 				UsedPct:   used,
 				ResetsAt:  reset,

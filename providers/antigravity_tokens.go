@@ -11,6 +11,7 @@ package providers
 import (
 	"database/sql"
 	"errors"
+	"kota/internal/domain"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -542,7 +543,7 @@ func agConversationFiles() map[string]time.Time {
 	return files
 }
 
-func antigravityLocalTokens() []TokenWindow {
+func antigravityLocalTokens() []domain.TokenWindow {
 	now := time.Now()
 	since7 := now.Add(-7 * 24 * time.Hour)
 	since5h := now.Add(-5 * time.Hour)
@@ -591,7 +592,7 @@ func antigravityLocalTokens() []TokenWindow {
 			w5.out += e.outTot
 		}
 	}
-	return []TokenWindow{
+	return []domain.TokenWindow{
 		tokenWindow("Last 5h", w5.in, w5.out),
 		tokenWindow("Last 7d", w7.in, w7.out),
 	}

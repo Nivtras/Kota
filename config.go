@@ -5,23 +5,12 @@ import (
 	"os"
 	"path/filepath"
 
+	"kota/internal/domain"
 	"kota/providers"
 )
 
-type config struct {
-	CompactWidth   int      `json:"compactWidth,omitempty"`   // taskbar pill width, logical px (0 = default)
-	PillAnchor     string   `json:"pillAnchor,omitempty"`     // "start" (default) | "tray"
-	PillOffset     *int     `json:"pillOffset,omitempty"`     // logical px from the anchor to the pill's right edge
-	Taskbar        []string `json:"taskbar,omitempty"`        // provider IDs on the taskbar pill
-	Display        string   `json:"display,omitempty"`        // "used" (default) | "remaining"
-	NotifyOff      bool     `json:"notifyOff,omitempty"`      // usage notifications disabled
-	PortablePath   string   `json:"portablePath,omitempty"`   // exe the user chose to run without installing
-	NotifyWarn     int      `json:"notifyWarn,omitempty"`     // warning threshold, % used (0 = 80)
-	NotifyCrit     int      `json:"notifyCrit,omitempty"`     // critical threshold, % used (0 = 95)
-	FollowActive   bool     `json:"followActive,omitempty"`   // show the AI tool in use first on the pill
-	UpdateCheckOff bool     `json:"updateCheckOff,omitempty"` // daily GitHub release check disabled
-	AllMonitors    bool     `json:"allMonitors,omitempty"`    // pill on every monitor's taskbar
-}
+// config is the stored preferences (config.json).
+type config = domain.Preferences
 
 func configPath() string { return filepath.Join(providers.DataDir(), "config.json") }
 

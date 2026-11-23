@@ -6,8 +6,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"kota/internal/domain"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -47,30 +47,10 @@ func latestRelease(ctx context.Context) (*UpdateInfo, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil || r.Draft || r.Prerelease {
 		return nil, err
 	}
-	if !newerVersion(r.Tag, appVersion) || !strings.HasPrefix(r.URL, "https://github.com/") {
+	if !domain.NewerVersion(r.Tag, appVersion) || !strings.HasPrefix(r.URL, "https://github.com/") {
 		return nil, nil
 	}
 	return &UpdateInfo{Version: strings.TrimPrefix(r.Tag, "v"), URL: r.URL}, nil
-}
-
-// newerVersion reports whether tag (e.g. "v1.2.0") is newer than cur ("1.1.0").
-func newerVersion(tag, cur string) bool {
-	parse := func(s string) [3]int {
-		var v [3]int
-		s = strings.TrimPrefix(strings.TrimSpace(s), "v")
-		s, _, _ = strings.Cut(s, "-")
-		for i, part := range strings.SplitN(s, ".", 3) {
-			v[i], _ = strconv.Atoi(part)
-		}
-		return v
-	}
-	a, b := parse(tag), parse(cur)
-	for i := range a {
-		if a[i] != b[i] {
-			return a[i] > b[i]
-		}
-	}
-	return false
 }
 
 // updateLoop checks shortly after start and then daily while enabled.

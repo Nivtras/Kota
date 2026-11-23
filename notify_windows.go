@@ -8,6 +8,7 @@ package main
 // the widget doesn't add a permanent tray icon.
 
 import (
+	"kota/internal/domain"
 	"os"
 	"sync"
 	"time"
@@ -162,7 +163,7 @@ func userBusy() bool {
 
 var held struct {
 	sync.Mutex
-	items    []alert
+	items    []domain.Alert
 	watching bool
 }
 
@@ -177,7 +178,7 @@ func holdNotification(title, body string) {
 			break
 		}
 	}
-	held.items = append(held.items, alert{title, body})
+	held.items = append(held.items, domain.Alert{Title: title, Body: body})
 	if len(held.items) > maxHeld {
 		held.items = held.items[len(held.items)-maxHeld:]
 	}

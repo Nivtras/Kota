@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"kota/internal/domain"
 	"os"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	var out []providers.Usage
+	var out []domain.Usage
 	for _, p := range providers.All() {
 		out = append(out, p.Fetch(ctx))
 	}
