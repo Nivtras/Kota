@@ -48,7 +48,7 @@ func (s *SettingsService) changed() {
 	ls := append([]func(){}, s.listeners...)
 	s.mu.Unlock()
 	for _, f := range ls {
-		f()
+		guard("settings listener", f)
 	}
 }
 

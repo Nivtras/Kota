@@ -12,6 +12,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 
 	"kota/internal/application"
+	"kota/internal/buildinfo"
 	"kota/internal/infrastructure/github"
 	"kota/internal/infrastructure/providers"
 	"kota/internal/infrastructure/storage"
@@ -24,6 +25,8 @@ import (
 var assets embed.FS
 
 func main() {
+	storage.StartCrashLog(buildinfo.Version) // crash.log in %APPDATA%\Kota
+	application.OnPanic = storage.LogPanic
 	system.MigrateOldName()     // AI Usage Widget → Kota
 	if system.HandleInstall() { // install / update / uninstall
 		return

@@ -86,11 +86,11 @@ func (a *API) startup(ctx context.Context) {
 	a.svc.Usage.OnTick(a.updatePill)
 	a.svc.Settings.OnChange(a.updatePill)
 	a.svc.Updates.OnChange(func(r *domain.Release) { runtime.EventsEmit(ctx, eventUpdate, r) })
-	go a.svc.Usage.Run()
-	go a.svc.Updates.Run()
-	go system.WatchActiveTool(
-		func() bool { return a.svc.Settings.Prefs().FollowActive },
-		a.svc.Settings.SetActive)
+	go application.Supervise("refresh loop", a.svc.Usage.Run)
+	go application.Supervise("update check", a.svc.Updates.Run)
+	go application.Supervise("active tool", func() {
+		system.WatchActiveTool(func() bool { return a.svc.Settings.Prefs().FollowActive }, a.svc.Settings.SetActive)
+	})
 }
 
 func (a *API) domReady(ctx context.Context) { go a.panel.attach(Title) }

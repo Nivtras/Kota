@@ -74,7 +74,10 @@ func (s *UsageService) Fetch() []domain.Usage {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), fetchDeadline)
 			defer cancel()
-			out[i] = src.Fetch(ctx)
+			if !guard("fetch "+src.ID(), func() { out[i] = src.Fetch(ctx) }) {
+				out[i] = domain.Usage{ID: src.ID(), Name: src.Name(), Groups: []domain.Group{},
+					Error: "Internal error while reading usage (details in crash.log)."}
+			}
 		}(i, src)
 	}
 	wg.Wait()
@@ -84,7 +87,7 @@ func (s *UsageService) Fetch() []domain.Usage {
 	s.mu.Unlock()
 	close(ch)
 	for _, f := range s.onUsage {
-		f(out)
+		guard("usage listener", func() { f(out) })
 	}
 	return out
 }
@@ -131,7 +134,7 @@ func (s *UsageService) Run() {
 				fetchNow() // back at the keyboard: show fresh numbers
 			} else {
 				for _, f := range s.onTick {
-					f()
+					guard("tick listener", f)
 				}
 			}
 			wasIdle = idle

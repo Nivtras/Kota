@@ -234,3 +234,27 @@ func TestCredentials(t *testing.T) {
 		t.Error("clear")
 	}
 }
+
+type panicSource struct{}
+
+func (panicSource) ID() string                         { return "boom" }
+func (panicSource) Name() string                       { return "Boom" }
+func (panicSource) Fetch(context.Context) domain.Usage { panic("unexpected response") }
+
+func TestPanicsAreContained(t *testing.T) {
+	var reports []string
+	OnPanic = func(where string, v any, _ []byte) { reports = append(reports, where) }
+	defer func() { OnPanic = nil }()
+
+	s := NewUsageService(func() []UsageSource { return []UsageSource{panicSource{}, &slowSource{}} }, &fakePresence{})
+	s.OnUsage(func([]domain.Usage) { panic("listener bug") })
+	second := false
+	s.OnUsage(func([]domain.Usage) { second = true })
+	out := s.Fetch()
+	if len(out) != 2 || out[0].Error == "" || out[0].ID != "boom" || out[1].ID != "x" {
+		t.Fatalf("out = %+v", out)
+	}
+	if !second || len(reports) != 2 {
+		t.Fatalf("second listener ran: %v, reports %v", second, reports)
+	}
+}
