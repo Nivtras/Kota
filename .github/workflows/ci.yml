@@ -60,7 +60,7 @@ jobs:
           $tag = "${{ github.ref_name }}".TrimStart('v')
           $code = (Select-String -Path internal/buildinfo/buildinfo.go -Pattern 'Version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
           $wails = (Get-Content wails.json -Raw | ConvertFrom-Json).info.productVersion
-          if ($tag -ne $code -or $tag -ne $wails) { throw "tag $tag, buildinfo $code, wails.json $wails: they must match" }
+          if ($tag -ne $code -or $tag -ne $wails) { throw "tag ${tag}, buildinfo ${code}, wails.json ${wails} - they must match" }
           "KOTA_VERSION=$tag" | Out-File -Append $env:GITHUB_ENV
 
       - uses: actions/download-artifact@v4
