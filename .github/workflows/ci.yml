@@ -78,7 +78,8 @@ jobs:
             ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" }
           $notes = "docs/releases/${{ github.ref_name }}.md"
           $body = if (Test-Path $notes) { Get-Content $notes -Raw } else { "" }
-          $body += "`n### SHA-256`n``````n$($sums -join "`n")`n``````n"
+          $fence = '```'
+          $body += "`n### SHA-256`n$fence`n$($sums -join "`n")`n$fence`n"
           Set-Content dist/notes.md $body
 
       - name: Publish release
