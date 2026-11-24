@@ -1,0 +1,11 @@
+# Text files use LF in the repository and the working tree (Go, the web
+# panel and PowerShell all read LF fine), so commits don't warn about
+# line-ending conversion whatever core.autocrlf is set to.
+* text=auto eol=lf
+
+# Binary
+*.png binary
+*.ico binary
+*.exe binary
+*.zip binary
+*.syso binary
