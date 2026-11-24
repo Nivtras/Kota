@@ -120,7 +120,7 @@ func openRouterResult(k openRouterKey, c *openRouterCredits, now time.Time) remo
 	}
 	if f := d.FreeModelDaily; f != nil && f.Limit > 0 {
 		reset, window := openRouterReset("daily", now)
-		bars = append(bars, domain.Bar{Label: "Free models · daily requests", UsedPct: clamp(100 * f.Used / f.Limit),
+		bars = append(bars, domain.Bar{Label: "Free requests", UsedPct: clamp(100 * f.Used / f.Limit),
 			ResetsAt: reset.Format(time.RFC3339), WindowSec: int64(window / time.Second),
 			Tooltip: fmt.Sprintf("%.0f of %.0f requests to :free models today (UTC) · also max 20 per minute", f.Used, f.Limit)})
 	}

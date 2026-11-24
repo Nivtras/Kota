@@ -51,6 +51,8 @@ body {
 }
 /* This page is the panel only; the taskbar pill is a native window. */
 img.logo { object-fit: contain; background: transparent; }
+/* The Codex mark is white: on the light theme show it dark. */
+@media (prefers-color-scheme: light) { img.logo[src$="codex.png"] { filter: invert(1); } }
 
 /* ---------- settings ---------- */
 main[hidden] { display: none; }

@@ -18,6 +18,7 @@ package taskbar
 import (
 	"bytes"
 	"image"
+	"image/color"
 	"image/png"
 	"kota/internal/infrastructure/storage"
 	"kota/internal/infrastructure/win32"
@@ -115,9 +116,14 @@ const (
 )
 
 type iconKey struct {
-	id   string
-	size int32
+	id    string
+	size  int32
+	light bool // drawn for the light taskbar theme
 }
+
+// darkOnLight: white marks that disappear on the light taskbar; they are
+// drawn inverted there.
+var darkOnLight = map[string]bool{"codex": true}
 
 var thePill *pill // the primary pill (main taskbar)
 
@@ -887,18 +893,34 @@ func (p *pill) drawLogo(dc uintptr, id, name string, x, y, size int32) {
 
 // icon returns a cached premultiplied 32-bit DIB of the provider logo.
 func (p *pill) icon(id string, size int32) uintptr {
-	k := iconKey{id, size}
+	k := iconKey{id, size, lightTaskbar.Load()}
 	if h, ok := p.icons[k]; ok {
 		return h
 	}
 	var h uintptr
 	if data, ok := p.logos[id]; ok {
 		if img, err := png.Decode(bytes.NewReader(data)); err == nil {
+			if k.light && darkOnLight[id] {
+				img = invertRGB(img)
+			}
 			h = makeDIB(img, int(size))
 		}
 	}
 	p.icons[k] = h
 	return h
+}
+
+// invertRGB flips the colours and keeps the transparency.
+func invertRGB(img image.Image) image.Image {
+	b := img.Bounds()
+	out := image.NewNRGBA(b)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			c := color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA)
+			out.SetNRGBA(x, y, color.NRGBA{255 - c.R, 255 - c.G, 255 - c.B, c.A})
+		}
+	}
+	return out
 }
 
 func makeDIB(img image.Image, size int) uintptr {
