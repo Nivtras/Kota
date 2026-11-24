@@ -39,8 +39,10 @@ internal/
     updates.go                UpdateService: daily release check
     taskbar.go                PillRows: what the pill draws for the current data
   infrastructure/
-    providers/                Claude, Codex, Antigravity (+ token parsing, caches)
-    storage/                  %APPDATA%\Kota: config.json, history.json, notify-state.json, dock.log
+    providers/                Claude, Codex, Antigravity, Gemini CLI, OpenRouter, Copilot, Cursor
+                              (+ token parsing, per-day tally, caches)
+    storage/                  %APPDATA%\Kota: config.json, history.json, notify-state.json, dock.log,
+                              secrets.dat (DPAPI), crash.log
     win32/                    Win32 + COM bindings, taskbar discovery
     system/                   autostart, installer, idle time, active tool, fullscreen, theme
     github/                   GitHub Releases client
@@ -48,8 +50,11 @@ internal/
     taskbar/                  native pill(s), tooltip, right-click menu, UI Automation, colours
     panel/                    Wails window handling + API (what the page calls: window.go.panel.API)
     toast/                    notification balloons from their own message-only window
+    hotkey/                   global shortcut (RegisterHotKey on its own thread)
+  i18n/                       T(), dates/durations in the current language; tr.json (Turkish)
 cmd/probe/                    prints provider output as JSON (no UI)
-frontend/dist/                index.html, styles.css, app.js, chart.js
+frontend/dist/                index.html, styles.css, core.js (pure helpers), chart.js, app.js
+frontend/tests/               node:test tests of core.js / chart.js
 ```
 
 ## Decisions
@@ -63,6 +68,13 @@ frontend/dist/                index.html, styles.css, app.js, chart.js
   has its own hidden window, so it doesn't depend on the pill.
 - **`win32` and `system` instead of one `windows` package**: the low-level bindings are shared by
   presentation and infrastructure, while `system` holds the OS services behind ports.
+- **Wording lives at the edge.** The domain returns structured data (an `Alert` has a kind,
+  label and numbers, not a sentence); the application and the page turn it into text with
+  `i18n.T` / `t()`, keyed by the English wording. `internal/i18n` tests check that every shown
+  text has a Turkish entry with the same format verbs.
+- **Panics are contained.** Each provider fetch, listener and background loop runs under a
+  recover (`application.guard` / `Supervise`); the stack goes to `crash.log`, and fatal runtime
+  errors land there too via `debug.SetCrashOutput`.
 - **Tests sit with the code they test.** Domain rules and application services are tested with
   fakes; Windows-specific diagnostics are opt-in via environment variables
   (`ACTIVE_DIAG`, `KOTA_TOAST_DIAG`).

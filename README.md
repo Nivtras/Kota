@@ -19,7 +19,9 @@ tell at a glance whether you're burning through it faster than the clock.
 - **Pace marker** — the thin line on each bar is how much of the window has elapsed. Past the line
   means you're ahead of the clock; the panel warns *"At this pace: limit reached in 1h 22m"*.
 - **Panel** (click the pill) — every limit of every provider, token totals for the last 5 h / 7 days,
-  and a **7-day usage chart**.
+  a **7-day usage chart** and **tokens / spend per day** for the last week.
+- **Keyboard shortcut** — `Win+Shift+K` opens and closes the panel (changeable or off in settings).
+- **English and Turkish** — follows the Windows display language; can be set in settings.
 - **Notifications** — at a warning and a critical threshold (80 % / 95 % by default, adjustable),
   and when a used-up limit is available again. Held back during fullscreen, games and presentations.
 - **Follow the tool you're using** (optional) — the pill shows Claude first while you're in Claude
@@ -65,7 +67,8 @@ Providers that aren't installed are simply hidden.
   if so. Nothing is downloaded automatically; you can turn the check off in settings.
 - Kota never writes to Codex's, Gemini CLI's or Cursor's credentials. For Claude, an expired access token is refreshed the
   same way Claude Code does it and written back with every other field preserved.
-- Settings, caches and the 7-day history live in `%APPDATA%\Kota`.
+- Settings, caches and the 7-day history live in `%APPDATA%\Kota`. If something goes wrong,
+  `crash.log` there has the details (no tokens or keys are written to it).
 
 > The usage endpoints Kota uses are not officially documented and may change with tool updates.
 > Kota is an independent project, not affiliated with or endorsed by Anthropic, OpenAI or Google;
@@ -86,7 +89,8 @@ presentation ──► application ──► domain
 | Domain | `internal/domain` | The rules, with no Windows/IO: usage types, which limit the pill shows, pace, notification policy, 7-day history, adaptive refresh schedule, preferences, version comparison. |
 | Application | `internal/application` | Use cases behind ports: refresh loop, notifications (held during fullscreen), history, update check, settings, the rows the pill draws. |
 | Infrastructure | `internal/infrastructure/…` | `providers` (Claude, Codex, Antigravity), `storage` (`%APPDATA%\Kota`), `win32` (Win32/COM bindings, taskbar discovery), `system` (autostart, installer, idle, active tool, fullscreen, theme), `github` (releases). |
-| Presentation | `internal/presentation/…` | `taskbar` (the native pills), `panel` (Wails window + the API the page calls), `toast` (notification balloons). |
+| Presentation | `internal/presentation/…` | `taskbar` (the native pills), `panel` (Wails window + the API the page calls), `toast` (notification balloons), `hotkey` (global shortcut). |
+| Translations | `internal/i18n` | The English text is the key; `tr.json` holds Turkish. Shared by Go and the page. |
 | Composition root | `main.go` | Builds the services and starts Wails. |
 
 Windows 11 has no API for third-party taskbar widgets (the weather widget is part of Explorer), so:
@@ -97,7 +101,7 @@ Windows 11 has no API for third-party taskbar widgets (the weather widget is par
   the pill's thread deadlocks with Explorer); taskbar changes are followed via `SetWinEventHook`,
   and the pill is re-created on the `TaskbarCreated` broadcast when Explorer restarts.
 - **Panel** — the Wails (WebView2) window, a plain top-most popup shown above the pill
-  (`frontend/dist`: `index.html`, `styles.css`, `app.js`, `chart.js`).
+  (`frontend/dist`: `index.html`, `styles.css`, `core.js`, `chart.js`, `app.js`).
 - **Installer** — the exe copies itself, creates the shortcut with `IShellLink` and an uninstall entry.
 
 See [docs/architecture.md](docs/architecture.md) for the details.
@@ -109,11 +113,15 @@ Requires Go 1.26+ and the [Wails v2 CLI](https://wails.io/docs/gettingstarted/in
 ```bash
 wails build -clean -skipbindings -trimpath   # build/bin/Kota.exe
 go test ./...
+node --test "frontend/tests/*.test.js"       # the page's helpers (Node 22+)
 go run ./cmd/probe                           # provider output as JSON, no UI
 ```
 
 Run a dev build with `--portable` to skip the install prompt. The icon is generated from
 `build/logo.svg`'s geometry by `build/makeicon.ps1`.
+
+Translating: every text shown is looked up by its English wording in `internal/i18n/tr.json`;
+`go test ./internal/i18n` lists any text without a translation.
 
 Adding a provider: implement it in `internal/infrastructure/providers` (it satisfies `application.UsageSource`) and register it in `providers.All()`.
 

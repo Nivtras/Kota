@@ -30,6 +30,13 @@ jobs:
         # skip themselves on the runner.
         run: go test ./...
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Frontend tests
+        run: node --test "frontend/tests/*.test.js"
+
       - name: Install Wails CLI
         shell: pwsh
         run: |
