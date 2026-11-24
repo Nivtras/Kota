@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"kota/internal/buildinfo"
+	"kota/internal/i18n"
 	"kota/internal/infrastructure/storage"
 	"kota/internal/infrastructure/win32"
 	"os"
@@ -112,14 +113,9 @@ func HandleInstall() bool {
 	if _, err := os.Stat(installedExe()); err == nil {
 		installed = true
 	}
-	q := "Install Kota for this user?\n\n" +
-		"It is copied to " + installDir() + " and gets a Start menu entry " +
-		"(uninstall from Settings → Apps). No admin rights needed.\n\n" +
-		"Yes: install    No: run it from here"
+	q := i18n.T("Install Kota for this user?\n\nIt is copied to %s and gets a Start menu entry (uninstall from Settings → Apps). No admin rights needed.\n\nYes: install    No: run it from here", installDir())
 	if installed {
-		q = "Kota is already installed.\n\nUpdate the installed copy to version " + buildinfo.Version + "?\n" +
-			"A running copy will be restarted. Your settings are kept.\n\n" +
-			"Yes: update    No: run this copy from here"
+		q = i18n.T("Kota is already installed.\n\nUpdate the installed copy to version %s?\nA running copy will be restarted. Your settings are kept.\n\nYes: update    No: run this copy from here", buildinfo.Version)
 	}
 	switch messageBox(q, mbYesNoCancel|mbIconQ) {
 	case idYes:
@@ -131,12 +127,12 @@ func HandleInstall() bool {
 		return true
 	}
 	if err := install(self); err != nil {
-		messageBox("Install failed: "+err.Error(), mbIconWarn)
+		messageBox(i18n.T("Install failed: %s", err.Error()), mbIconWarn)
 		return false // run from here instead
 	}
 	cmd := exec.Command(installedExe(), fmt.Sprintf("--wait-pid=%d", os.Getpid()))
 	if err := cmd.Start(); err != nil {
-		messageBox("Installed, but it could not be started: "+err.Error(), mbIconWarn)
+		messageBox(i18n.T("Installed, but it could not be started: %s", err.Error()), mbIconWarn)
 	}
 	return true
 }
@@ -288,7 +284,7 @@ func writeUninstallEntry(dir string) error {
 }
 
 func uninstall() {
-	if messageBox("Uninstall Kota?", mbYesNo|mbIconQ) != idYes {
+	if messageBox(i18n.T("Uninstall Kota?"), mbYesNo|mbIconQ) != idYes {
 		return
 	}
 	self, _ := os.Executable()
@@ -297,7 +293,7 @@ func uninstall() {
 	_ = os.Remove(shortcutPath())
 	_ = registry.DeleteKey(registry.CURRENT_USER, uninstallKey)
 	data := storage.DataDir()
-	removeData := messageBox("Also delete settings and history ("+data+")?", mbYesNo|mbIconQ) == idYes
+	removeData := messageBox(i18n.T("Also delete settings and history (%s)?", data), mbYesNo|mbIconQ) == idYes
 	// This exe can't delete itself while running: a hidden cmd removes the
 	// folder a moment after we exit.
 	dir := installDir()
@@ -315,7 +311,7 @@ func uninstall() {
 			_ = os.RemoveAll(data)
 		}
 	}
-	messageBox("Kota was uninstalled.", mbIconInfo)
+	messageBox(i18n.T("Kota was uninstalled."), mbIconInfo)
 }
 
 // stopInstances ends running copies of exe ("" = any copy of the app),

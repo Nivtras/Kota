@@ -13,6 +13,7 @@ import (
 
 	"kota/internal/application"
 	"kota/internal/buildinfo"
+	"kota/internal/i18n"
 	"kota/internal/infrastructure/github"
 	"kota/internal/infrastructure/providers"
 	"kota/internal/infrastructure/storage"
@@ -27,7 +28,10 @@ var assets embed.FS
 func main() {
 	storage.StartCrashLog(buildinfo.Version) // crash.log in %APPDATA%\Kota
 	application.OnPanic = storage.LogPanic
-	system.MigrateOldName()     // AI Usage Widget → Kota
+	system.MigrateOldName() // AI Usage Widget → Kota
+	// The language first: the install prompts are already translated.
+	prefs := storage.NewPreferencesStore(storage.Path("config.json")).Load()
+	i18n.Set(i18n.Resolve(prefs.Language, system.UILanguage()))
 	if system.HandleInstall() { // install / update / uninstall
 		return
 	}

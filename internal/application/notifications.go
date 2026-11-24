@@ -1,11 +1,11 @@
 package application
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
 	"kota/internal/domain"
+	"kota/internal/i18n"
 )
 
 const (
@@ -27,8 +27,33 @@ type NotificationService struct {
 	state *domain.AlertState
 
 	heldMu   sync.Mutex
-	held     []domain.Alert
+	held     []message
 	watching bool
+}
+
+// message is a notification in words.
+type message struct{ title, body string }
+
+// subject: "Claude · 5-hour limit", "Antigravity · Gemini Models · 5h limit".
+func subject(a domain.Alert) string {
+	s := a.Provider
+	for _, p := range []string{a.Group, a.Label} {
+		if p != "" {
+			s += " · " + i18n.T(p)
+		}
+	}
+	return s
+}
+
+// words an alert in the current language.
+func words(a domain.Alert) message {
+	switch a.Kind {
+	case domain.AlertAvailable:
+		return message{i18n.T("%s is available again", subject(a)), i18n.T("Now %.0f%% used.", a.Used)}
+	case domain.AlertCritical:
+		return message{i18n.T("%s at %.0f%% — almost out", subject(a), a.Used), i18n.T("Resets in %s.", i18n.ShortDuration(a.ResetIn))}
+	}
+	return message{i18n.T("%s at %.0f%%", subject(a), a.Used), i18n.T("Resets in %s.", i18n.ShortDuration(a.ResetIn))}
 }
 
 func NewNotificationService(settings *SettingsService, repo AlertRepo, out Notifier, presence Presence) *NotificationService {
@@ -52,7 +77,7 @@ func (n *NotificationService) Check(items []domain.Usage) {
 		return
 	}
 	for _, a := range alerts {
-		n.show(a)
+		n.show(words(a))
 	}
 }
 
@@ -60,25 +85,25 @@ func (n *NotificationService) Check(items []domain.Usage) {
 func (n *NotificationService) Test() {
 	p := n.settings.Prefs()
 	w, c := domain.NormLevels(p.NotifyWarn, p.NotifyCrit)
-	n.show(domain.Alert{
-		Title: "Kota notifications are on",
-		Body:  fmt.Sprintf("You'll be told at %d%% and %d%% of a limit, and when it's available again.", w, c),
+	n.show(message{
+		i18n.T("Kota notifications are on"),
+		i18n.T("You'll be told at %d%% and %d%% of a limit, and when it's available again.", w, c),
 	})
 }
 
-func (n *NotificationService) show(a domain.Alert) {
+func (n *NotificationService) show(a message) {
 	if n.presence.Busy() {
 		n.hold(a)
 		return
 	}
-	n.out.Notify(a.Title, a.Body)
+	n.out.Notify(a.title, a.body)
 }
 
-func (n *NotificationService) hold(a domain.Alert) {
+func (n *NotificationService) hold(a message) {
 	n.heldMu.Lock()
 	defer n.heldMu.Unlock()
 	for i, h := range n.held {
-		if h.Title == a.Title { // a newer reading of the same thing
+		if h.title == a.title { // a newer reading of the same thing
 			n.held = append(n.held[:i], n.held[i+1:]...)
 			break
 		}
@@ -106,7 +131,7 @@ func (n *NotificationService) flushWhenFree() {
 			if i > 0 {
 				time.Sleep(heldGap)
 			}
-			n.out.Notify(a.Title, a.Body)
+			n.out.Notify(a.title, a.body)
 		}
 		return
 	}

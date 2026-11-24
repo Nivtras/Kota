@@ -20,6 +20,9 @@ type Settings struct {
 	Update    bool     `json:"update"` // daily release check
 	Warn      int      `json:"warn"`   // notification thresholds, % used
 	Critical  int      `json:"critical"`
+	Hotkey    string   `json:"hotkey"`   // panel shortcut ("" = default, "off")
+	Language  string   `json:"language"` // chosen: "" (follow Windows), "en", "tr"
+	Lang      string   `json:"lang"`     // in use: "en" or "tr" (filled by the panel API)
 }
 
 // SettingsService owns the preferences and the "tool in use" (follow mode).
@@ -102,6 +105,8 @@ func (s *SettingsService) View() Settings {
 		Follow:    p.FollowActive,
 		Multi:     p.AllMonitors,
 		Update:    !p.UpdateCheckOff,
+		Hotkey:    p.Hotkey,
+		Language:  p.Language,
 	}
 	v.Warn, v.Critical = domain.NormLevels(p.NotifyWarn, p.NotifyCrit)
 	return v
@@ -144,6 +149,16 @@ func (s *SettingsService) SetFollowActive(on bool) {
 
 func (s *SettingsService) SetAllMonitors(on bool) {
 	s.Update(true, func(p *domain.Preferences) { p.AllMonitors = on })
+}
+
+// SetLanguage stores the interface language ("" = follow Windows).
+func (s *SettingsService) SetLanguage(lang string) {
+	s.Update(true, func(p *domain.Preferences) { p.Language = lang })
+}
+
+// SetHotkey stores the panel shortcut ("" = default, "off" = none).
+func (s *SettingsService) SetHotkey(spec string) {
+	s.Update(true, func(p *domain.Preferences) { p.Hotkey = spec })
 }
 
 func (s *SettingsService) SetUpdateCheck(on bool) {

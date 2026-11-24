@@ -8,14 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"kota/internal/buildinfo"
-	"kota/internal/domain"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"kota/internal/buildinfo"
+	"kota/internal/domain"
+	"kota/internal/i18n"
 )
 
 // Codex reads ChatGPT/Codex rate limits with the token the Codex app keeps in
@@ -80,8 +82,8 @@ func (c *Codex) Installed() bool {
 
 func (c *Codex) Fetch(ctx context.Context) domain.Usage {
 	u := newUsage(c)
-	if tw, err := codexLocalTokens(); err == nil {
-		u.Tokens = tw
+	if tally, err := codexLocalTokens(); err == nil {
+		setTokens(&u, tally)
 	}
 	cache := loadJSON[codexCache](codexCacheFile)
 	u.Plan = cache.Plan
@@ -89,7 +91,7 @@ func (c *Codex) Fetch(ctx context.Context) domain.Usage {
 	stale := func(msg string) domain.Usage {
 		if len(cache.Groups) > 0 {
 			u.Groups = cache.Groups
-			u.Note = fmt.Sprintf("%s — showing data from %s.", msg, cache.FetchedAt.Local().Format("Jan 2 15:04"))
+			u.Note = i18n.T("%s — showing data from %s.", i18n.T(msg), i18n.DateTime(cache.FetchedAt))
 		} else {
 			u.Error = msg
 		}
@@ -107,7 +109,7 @@ func (c *Codex) Fetch(ctx context.Context) domain.Usage {
 	if wait {
 		u.Groups = cache.Groups
 		if cache.LastErr != "" {
-			u.Note = fmt.Sprintf("%s — retrying in %s.", cache.LastErr, shortDur(time.Until(cache.NextAllowed)))
+			u.Note = i18n.T("%s — retrying in %s.", i18n.T(cache.LastErr), i18n.ShortDuration(time.Until(cache.NextAllowed)))
 		}
 		return u
 	}
@@ -260,11 +262,10 @@ func codexGroups(d *codexUsage) []domain.Group {
 // codexLocalTokens sums token usage from Codex session logs
 // (~/.codex/sessions/**/rollout-*.jsonl). Each model response writes a
 // token_count event whose last_token_usage is that response's usage.
-func codexLocalTokens() ([]domain.TokenWindow, error) {
+func codexLocalTokens() (*tokenTally, error) {
 	now := time.Now()
 	since7 := now.Add(-7 * 24 * time.Hour)
-	since5h := now.Add(-5 * time.Hour)
-	var w5, w7 struct{ in, out int64 }
+	tally := newTally(now)
 
 	type usage struct {
 		Input  int64 `json:"input_tokens"`
@@ -308,14 +309,7 @@ func codexLocalTokens() ([]domain.TokenWindow, error) {
 						// when the running total moves forward.
 						if t := l.Payload.Info.Total.Total; t > prevTotal {
 							prevTotal = t
-							if l.Timestamp.After(since7) {
-								w7.in += l.Payload.Info.Last.Input
-								w7.out += l.Payload.Info.Last.Output
-								if l.Timestamp.After(since5h) {
-									w5.in += l.Payload.Info.Last.Input
-									w5.out += l.Payload.Info.Last.Output
-								}
-							}
+							tally.add(l.Timestamp, l.Payload.Info.Last.Input, l.Payload.Info.Last.Output)
 						}
 					}
 				}
@@ -326,10 +320,7 @@ func codexLocalTokens() ([]domain.TokenWindow, error) {
 			return nil
 		})
 	}
-	return []domain.TokenWindow{
-		tokenWindow("Last 5h", w5.in, w5.out),
-		tokenWindow("Last 7d", w7.in, w7.out),
-	}, nil
+	return tally, nil
 }
 
 func windowLabel(sec int64) string {

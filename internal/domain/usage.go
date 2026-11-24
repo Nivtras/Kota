@@ -39,6 +39,19 @@ type TokenWindow struct {
 	Total  string `json:"total"`
 }
 
+// DayAmount is one calendar day of usage: tokens or spend (USD).
+type DayAmount struct {
+	Day    string  `json:"day"` // "2026-11-24"
+	Tokens int64   `json:"tokens,omitempty"`
+	Cost   float64 `json:"cost,omitempty"`
+}
+
+// Units of Usage.Daily.
+const (
+	DailyTokens = "tokens"
+	DailyUSD    = "usd"
+)
+
 // Usage is what one provider reports.
 type Usage struct {
 	ID        string        `json:"id"`
@@ -47,6 +60,8 @@ type Usage struct {
 	Groups    []Group       `json:"groups"`
 	Details   []Stat        `json:"details,omitempty"`
 	Tokens    []TokenWindow `json:"tokens,omitempty"`
+	Daily     []DayAmount   `json:"daily,omitempty"`     // last days, oldest first
+	DailyUnit string        `json:"dailyUnit,omitempty"` // DailyTokens | DailyUSD
 	Note      string        `json:"note,omitempty"`
 	Error     string        `json:"error,omitempty"`
 	UpdatedAt string        `json:"updatedAt"`

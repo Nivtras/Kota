@@ -20,6 +20,7 @@ import (
 	"unicode/utf16"
 
 	"kota/internal/domain"
+	"kota/internal/i18n"
 )
 
 var cursorAPI = "https://cursor.com/api"
@@ -195,7 +196,7 @@ func cursorResult(s cursorSummary) remoteResult {
 		}
 		b := withCycle(domain.Bar{Label: "Included usage", UsedPct: clamp(used)})
 		if p.Limit > 0 {
-			b.Tooltip = fmt.Sprintf("%s of %s included usage this billing cycle", usd(p.Used/100), usd(p.Limit/100))
+			b.Tooltip = i18n.T("%s of %s included usage this billing cycle", usd(p.Used/100), usd(p.Limit/100))
 		}
 		bars = append(bars, b)
 		if p.AutoPercentUsed != nil {

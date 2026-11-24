@@ -43,6 +43,7 @@ var (
 	DestroyWindow              = User32.NewProc("DestroyWindow")
 	DefWindowProcW             = User32.NewProc("DefWindowProcW")
 	GetMessageW                = User32.NewProc("GetMessageW")
+	PeekMessageW               = User32.NewProc("PeekMessageW")
 	TranslateMessage           = User32.NewProc("TranslateMessage")
 	DispatchMessageW           = User32.NewProc("DispatchMessageW")
 	PostMessageW               = User32.NewProc("PostMessageW")

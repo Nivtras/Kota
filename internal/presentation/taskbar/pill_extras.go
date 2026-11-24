@@ -5,6 +5,7 @@ package taskbar
 // Pill extras: hover tooltip and right-click menu (window thread).
 
 import (
+	"kota/internal/i18n"
 	"kota/internal/infrastructure/win32"
 	"strings"
 	"unsafe"
@@ -119,13 +120,13 @@ func showPillMenu(host uintptr) int {
 	add := func(id int, s string) {
 		pAppendMenuW.Call(m, mfString, uintptr(id), uintptr(unsafe.Pointer(win32.UTF16Ptr(s))))
 	}
-	add(MenuOpen, "Open panel")
-	add(MenuRefresh, "Refresh now")
-	add(MenuSettings, "Settings…")
+	add(MenuOpen, i18n.T("Open panel"))
+	add(MenuRefresh, i18n.T("Refresh now"))
+	add(MenuSettings, i18n.T("Settings…"))
 	pAppendMenuW.Call(m, mfSeparator, 0, 0)
-	add(MenuResetPosition, "Reset position")
+	add(MenuResetPosition, i18n.T("Reset position"))
 	pAppendMenuW.Call(m, mfSeparator, 0, 0)
-	add(MenuQuit, "Quit Kota")
+	add(MenuQuit, i18n.T("Quit Kota"))
 
 	var pt win32.Point
 	win32.GetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))

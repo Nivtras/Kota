@@ -156,3 +156,14 @@ func TestGeminiFetchHTTP(t *testing.T) {
 		t.Error("oauth_creds.json changed")
 	}
 }
+
+func TestOpenRouterDaily(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	d1 := time.Date(2026, 11, 23, 10, 0, 0, 0, time.UTC)
+	openRouterDaily(1.5, d1)
+	openRouterDaily(0.9, d1.Add(time.Hour)) // lower reading later the same day: keep the max
+	got := openRouterDaily(0.4, d1.Add(24*time.Hour))
+	if len(got) != 2 || got[0].Day != "2026-11-23" || got[0].Cost != 1.5 || got[1].Day != "2026-11-24" || got[1].Cost != 0.4 {
+		t.Fatalf("daily = %+v", got)
+	}
+}

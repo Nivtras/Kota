@@ -11,7 +11,6 @@ package providers
 import (
 	"database/sql"
 	"errors"
-	"kota/internal/domain"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -543,10 +542,9 @@ func agConversationFiles() map[string]time.Time {
 	return files
 }
 
-func antigravityLocalTokens() []domain.TokenWindow {
+func antigravityLocalTokens() *tokenTally {
 	now := time.Now()
 	since7 := now.Add(-7 * 24 * time.Hour)
-	since5h := now.Add(-5 * time.Hour)
 
 	agTokCacheMu.Lock()
 	defer agTokCacheMu.Unlock()
@@ -579,21 +577,9 @@ func antigravityLocalTokens() []domain.TokenWindow {
 		}
 	}
 
-	var w5, w7 struct{ in, out int64 }
+	tally := newTally(now)
 	for _, e := range dedupAgEvents(all) {
-		if e.ts.Before(since7) {
-			continue
-		}
-		in := e.input + e.cacheCreate + e.cacheRead
-		w7.in += in
-		w7.out += e.outTot
-		if !e.ts.Before(since5h) {
-			w5.in += in
-			w5.out += e.outTot
-		}
+		tally.add(e.ts, e.input+e.cacheCreate+e.cacheRead, e.outTot)
 	}
-	return []domain.TokenWindow{
-		tokenWindow("Last 5h", w5.in, w5.out),
-		tokenWindow("Last 7d", w7.in, w7.out),
-	}
+	return tally
 }

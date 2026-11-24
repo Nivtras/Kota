@@ -4,6 +4,7 @@ package panel
 
 import (
 	"context"
+	"kota/internal/i18n"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"kota/internal/infrastructure/storage"
 	"kota/internal/infrastructure/system"
 	"kota/internal/infrastructure/win32"
+	"kota/internal/presentation/hotkey"
 	"kota/internal/presentation/taskbar"
 	"kota/internal/presentation/toast"
 )
@@ -46,6 +48,7 @@ type API struct {
 	toaster *toast.Toaster
 	pill    *taskbar.Pills
 	panel   *panel
+	hotkey  *hotkey.Hotkey
 }
 
 // NewAPI builds the panel's API; the pills start with the Wails window.
@@ -78,6 +81,10 @@ func (a *API) startup(ctx context.Context) {
 	}
 	a.pill = taskbar.Start(o)
 	a.toaster.OnClick = func() { a.panel.show(a.pill.ScreenRect()) } // click on a notification
+	a.hotkey = hotkey.Start(func() { a.panel.toggle(a.pill.ScreenRect()) })
+	if err := a.hotkey.Set(p.Hotkey); err != nil {
+		storage.Log("shortcut %q: %v", p.Hotkey, err)
+	}
 
 	a.svc.Usage.OnUsage(func(items []domain.Usage) {
 		a.updatePill()
@@ -153,7 +160,22 @@ func (a *API) SetUpdateCheck(on bool) {
 }
 
 // GetSettings returns the settings view.
-func (a *API) GetSettings() application.Settings { return a.svc.Settings.View() }
+func (a *API) GetSettings() application.Settings {
+	v := a.svc.Settings.View()
+	v.Lang = i18n.Lang()
+	return v
+}
+
+// GetTranslations is the dictionary for the language in use (English → it).
+func (a *API) GetTranslations() map[string]string { return i18n.Dict() }
+
+// SetLanguage switches the interface language ("" = follow Windows) and
+// returns the new dictionary.
+func (a *API) SetLanguage(lang string) map[string]string {
+	i18n.Set(i18n.Resolve(lang, system.UILanguage()))
+	a.svc.Settings.SetLanguage(lang) // also redraws the pill in the new language
+	return i18n.Dict()
+}
 
 // SaveSettings stores the taskbar providers and display mode (the width is
 // saved through SetCompactWidth).
@@ -237,6 +259,20 @@ func (a *API) OpenKeyPage(id string) {
 		}
 	}
 }
+
+// SetHotkey changes the panel shortcut ("Win+Shift+K", "off", "" = default)
+// and returns "" or why it couldn't be registered (the old one is then off).
+func (a *API) SetHotkey(spec string) string {
+	if err := a.hotkey.Set(spec); err != nil {
+		a.svc.Settings.SetHotkey(spec) // keep the choice; the settings show the error
+		return err.Error()
+	}
+	a.svc.Settings.SetHotkey(spec)
+	return ""
+}
+
+// DefaultHotkey is the shortcut used when none is chosen.
+func (a *API) DefaultHotkey() string { return hotkey.Default }
 
 // HidePanel closes the panel (blur, Esc, collapse button).
 func (a *API) HidePanel() { a.panel.hideFromUI() }

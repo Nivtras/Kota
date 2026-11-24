@@ -94,14 +94,15 @@ func TestNotificationPolicy(t *testing.T) {
 		t.Fatalf("50%%: %v", a)
 	}
 	a, changed := p.Check(st, data(82, reset), t0)
-	if len(a) != 1 || a[0].Title != "Claude · 5-hour limit at 82%" || a[0].Body != "Resets in 2h 0m." || !changed {
+	if len(a) != 1 || a[0].Kind != AlertWarn || a[0].Provider != "Claude" || a[0].Label != "5-hour limit" ||
+		a[0].Used != 82 || a[0].ResetIn != 2*time.Hour || !changed {
 		t.Fatalf("80%% warning: %+v", a)
 	}
 	// same window, jittering sub-second reset time: no repeat
 	if a, _ := p.Check(st, data(85, reset.Add(300*time.Millisecond)), t0.Add(time.Minute)); len(a) != 0 {
 		t.Fatalf("repeat 80%%: %v", a)
 	}
-	if a, _ := p.Check(st, data(96, reset), t0.Add(2*time.Minute)); len(a) != 1 || a[0].Title != "Claude · 5-hour limit at 96% — almost out" {
+	if a, _ := p.Check(st, data(96, reset), t0.Add(2*time.Minute)); len(a) != 1 || (a[0].Kind != AlertCritical || a[0].Used != 96) {
 		t.Fatalf("95%% critical: %+v", a)
 	}
 	// restart: Sent survives, Prev is new
@@ -111,13 +112,13 @@ func TestNotificationPolicy(t *testing.T) {
 	}
 	// window resets → "available again"
 	a, _ = p.Check(st, data(3, t0.Add(7*time.Hour)), t0.Add(2*time.Hour+time.Minute))
-	if len(a) != 1 || a[0].Title != "Claude · 5-hour limit is available again" {
+	if len(a) != 1 || a[0].Kind != AlertAvailable || a[0].Used != 3 {
 		t.Fatalf("refilled: %+v", a)
 	}
 	// stale data (reset already passed) counts as 0%: refilled, no warning
 	st2 := NewAlertState()
 	st2.Prev["claude||5-hour limit"] = 90
-	if a, _ := p.Check(st2, data(90, t0.Add(-time.Minute)), t0); len(a) != 1 || a[0].Title != "Claude · 5-hour limit is available again" {
+	if a, _ := p.Check(st2, data(90, t0.Add(-time.Minute)), t0); len(a) != 1 || a[0].Kind != AlertAvailable || a[0].Used != 0 {
 		t.Fatalf("stale: %+v", a)
 	}
 }
@@ -128,7 +129,7 @@ func TestNotificationLevels(t *testing.T) {
 	if a, _ := NewNotificationPolicy(0, 0).Check(NewAlertState(), data, t0); len(a) != 0 {
 		t.Fatalf("default 80: %v", a)
 	}
-	if a, _ := NewNotificationPolicy(70, 90).Check(NewAlertState(), data, t0); len(a) != 1 || a[0].Title != "C · L at 72%" {
+	if a, _ := NewNotificationPolicy(70, 90).Check(NewAlertState(), data, t0); len(a) != 1 || (a[0].Kind != AlertWarn || a[0].Used != 72) {
 		t.Fatalf("warn 70: %+v", a)
 	}
 	for _, c := range []struct{ w, c, ww, wc int }{

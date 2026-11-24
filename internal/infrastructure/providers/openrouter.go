@@ -7,12 +7,12 @@ package providers
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"kota/internal/domain"
+	"kota/internal/i18n"
 	"kota/internal/infrastructure/storage"
 )
 
@@ -92,7 +92,38 @@ func fetchOpenRouter(ctx context.Context, key string, now time.Time) (remoteResu
 	if openRouterGet(ctx, key, "/credits", &cr) == nil { // optional: some keys can't read credits
 		c = &cr
 	}
-	return openRouterResult(k, c, now), nil
+	r := openRouterResult(k, c, now)
+	if k.Data.UsageDaily != nil {
+		r.Daily, r.DailyUnit = openRouterDaily(*k.Data.UsageDaily, now), domain.DailyUSD
+	}
+	return r, nil
+}
+
+const openRouterDailyFile = "openrouter-daily.json"
+
+// openRouterDaily remembers today's spend (UTC day; the API only reports the
+// current day) and returns the last days it has seen, oldest first.
+func openRouterDaily(today float64, now time.Time) []domain.DayAmount {
+	days := loadJSON[map[string]float64](openRouterDailyFile)
+	if days == nil {
+		days = map[string]float64{}
+	}
+	key := now.UTC().Format("2006-01-02")
+	days[key] = max(days[key], today) // spend only grows during a day
+	var out []domain.DayAmount
+	for i := dailyDays - 1; i >= 0; i-- {
+		k := now.UTC().AddDate(0, 0, -i).Format("2006-01-02")
+		if v, ok := days[k]; ok {
+			out = append(out, domain.DayAmount{Day: k, Cost: v})
+		}
+	}
+	for k := range days { // keep a month
+		if t, err := time.Parse("2006-01-02", k); err != nil || now.Sub(t) > 31*24*time.Hour {
+			delete(days, k)
+		}
+	}
+	saveJSON(openRouterDailyFile, days)
+	return out
 }
 
 // openRouterResult maps the API answers to bars and stats.
@@ -122,7 +153,7 @@ func openRouterResult(k openRouterKey, c *openRouterCredits, now time.Time) remo
 		reset, window := openRouterReset("daily", now)
 		bars = append(bars, domain.Bar{Label: "Free requests", UsedPct: clamp(100 * f.Used / f.Limit),
 			ResetsAt: reset.Format(time.RFC3339), WindowSec: int64(window / time.Second),
-			Tooltip: fmt.Sprintf("%.0f of %.0f requests to :free models today (UTC) · also max 20 per minute", f.Used, f.Limit)})
+			Tooltip: i18n.T("%.0f of %.0f requests to :free models today (UTC) · also max 20 per minute", f.Used, f.Limit)})
 	}
 	if c != nil {
 		if c.Data.TotalCredits > 0 {

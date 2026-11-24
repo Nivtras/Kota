@@ -14,6 +14,8 @@ type Preferences struct {
 	FollowActive   bool     `json:"followActive,omitempty"`   // show the AI tool in use first on the pill
 	UpdateCheckOff bool     `json:"updateCheckOff,omitempty"` // daily GitHub release check disabled
 	AllMonitors    bool     `json:"allMonitors,omitempty"`    // pill on every monitor's taskbar
+	Hotkey         string   `json:"hotkey,omitempty"`         // panel shortcut, "" = default, "off" = none
+	Language       string   `json:"language,omitempty"`       // "" = Windows' language, "en", "tr"
 }
 
 // Taskbar pill width bounds, logical px.

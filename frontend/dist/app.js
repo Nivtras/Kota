@@ -1,10 +1,8 @@
 // Kota panel: renders usage, settings and the update banner; talks to Go
-// through window.go.panel.API and the Wails runtime events.
+// through window.go.panel.API and the Wails runtime events. Pure helpers
+// (translation, formatting, pace) are in core.js, charts in chart.js.
 
-// This page is the panel. Data is fetched in Go (internal/application) and pushed with the
-// "usage" event; the taskbar pill is a native window drawn by Go.
-// Official app icons (taken from the installed apps). A provider without an
-// image falls back to a coloured letter.
+// Official app icons. A provider without an image falls back to a letter.
 const LOGOS = {
   claude:      { img: 'logos/claude.png',      bg: '#d97757', ch: 'C' },
   antigravity: { img: 'logos/antigravity.png', bg: '#4f7cff', ch: 'A' },
@@ -14,6 +12,7 @@ const LOGOS = {
   copilot:     { img: 'logos/copilot.png',     bg: '#2b3137', ch: 'C' },
   cursor:      { img: 'logos/cursor.png',      bg: '#1b1b1b', ch: 'C' },
 };
+function logoOf(u) { return LOGOS[u.id] || { bg: '#555', ch: (u.name || '?')[0] }; }
 function logoHTML(u) {
   const lg = logoOf(u);
   const letter = `<span class="logo" style="background:${lg.bg}">${esc(lg.ch)}</span>`;
@@ -31,86 +30,39 @@ const store = {
 };
 let openDetails = store.get('openDetails', {});
 
-// Settings come from Go (config.json). taskbar: provider IDs (max 2),
-// display: 'used' | 'remaining'.
+// Settings come from Go (config.json).
 let settings = { taskbar: null, display: 'used', width: 200, minWidth: 180, maxWidth: 320 };
 
-// Percent shown for a bar, following the display setting. Colour always
-// reflects how much is used, so red means "close to the limit" either way.
-function shown(usedPct) {
-  const used = clampPct(usedPct);
-  const rem = settings.display === 'remaining';
-  return { used, value: rem ? 100 - used : used, word: rem ? 'left' : 'used' };
+/* ---------- language ---------- */
+// The page's fixed texts carry their English text as the key.
+function applyStatic() {
+  document.documentElement.lang = LANG;
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    if (el.dataset.en === undefined) el.dataset.en = el.textContent;
+    el.textContent = t(el.dataset.en);
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    if (el.dataset.enTitle === undefined) el.dataset.enTitle = el.title;
+    el.title = t(el.dataset.enTitle);
+  });
 }
-function pctHTML(p) { return `${Math.floor(p.value)}%<small>${p.word}</small>`; }
-
-// Colour by how much is USED.
-function color(used) {
-  if (used >= 85) return 'var(--bad)';
-  if (used >= 60) return 'var(--warn)';
-  return 'var(--ok)';
-}
-const clampPct = (v) => Math.max(0, Math.min(100, v || 0));
-
-function resetShort(iso) {
-  if (!iso) return '';
-  const d = new Date(iso), ms = d - Date.now();
-  if (isNaN(ms)) return '';
-  if (ms <= 0) return 'now';
-  const m = Math.round(ms / 60000);
-  if (m < 60) return m + 'm';
-  if (m < 24 * 60) return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
-  return d.toLocaleDateString('en-GB', { weekday: 'short' }) + ' ' +
-         d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-}
-function resetLong(iso) {
-  const d = new Date(iso);
-  return isNaN(d) ? '' : 'Resets ' + d.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-}
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-}
-function logoOf(u) { return LOGOS[u.id] || { bg: '#555', ch: (u.name || '?')[0] }; }
-
-// Providers on the taskbar: the user's choice, else the first two
-// (same rule as the native pill, pill_model.go).
-function taskbarItems(items) {
-  const ids = (settings.taskbar || []).filter(id => items.some(u => u.id === id));
-  if (!ids.length) return items.slice(0, 2);
-  return ids.slice(0, 2).map(id => items.find(u => u.id === id));
+async function loadLanguage() {
+  let dict = {};
+  try { dict = (await api().GetTranslations()) || {}; } catch {}
+  setLanguage(settings.lang, dict);
+  applyStatic();
 }
 
 /* ---------- panel ---------- */
-// Pace: how much of the window's time has elapsed and whether the current
-// burn rate reaches 100% before the reset (same rules as pill_model.go).
-const MIN_PACE_USED = 20;
-function pace(b) {
-  const reset = Date.parse(b.resetsAt || ''), win = (b.windowSec || 0) * 1000, now = Date.now();
-  if (isNaN(reset) || win <= 0 || reset <= now) return null;
-  const left = Math.min(reset - now, win), elapsed = win - left;
-  const out = { elapsedPct: 100 * elapsed / win, runsOutIn: 0 };
-  const used = clampPct(b.usedPct);
-  if (used >= MIN_PACE_USED && used < 100 && elapsed > 0) {
-    const toLimit = (100 - used) / (used / elapsed);
-    if (toLimit < left) out.runsOutIn = toLimit;
-  }
-  return out;
-}
-function durShort(ms) {
-  const m = Math.round(ms / 60000);
-  if (m < 1) return '<1m';
-  if (m < 60) return m + 'm';
-  if (m < 1440) return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
-  return Math.floor(m / 1440) + 'd ' + Math.floor((m % 1440) / 60) + 'h';
-}
+function pctHTML(p) { return `${Math.floor(p.value)}%<small>${esc(p.word)}</small>`; }
 function barRow(b) {
-  const p = shown(b.usedPct);
+  const p = shown(b.usedPct, settings.display);
   const pc = pace(b);
   const marker = pc ? (settings.display === 'remaining' ? 100 - pc.elapsedPct : pc.elapsedPct) : -1;
   const tip = [b.tooltip, resetLong(b.resetsAt),
-    pc ? `${Math.round(pc.elapsedPct)}% of the window has passed` : ''].filter(Boolean).join('\n');
+    pc ? t('%d%% of the window has passed', Math.round(pc.elapsedPct)) : ''].filter(Boolean).join('\n');
   return `<div class="row" title="${esc(tip)}">
-    <span class="label">${esc(b.label)}</span>
+    <span class="label">${esc(t(b.label))}</span>
     <div class="track">
       <div class="fill" style="width:${p.value}%;background:${color(p.used)}"></div>
       ${marker >= 0 ? `<div class="marker" style="left:${marker}%"></div>` : ''}
@@ -118,72 +70,58 @@ function barRow(b) {
     <span class="reset">${esc(resetShort(b.resetsAt))}</span>
     <span class="pct">${pctHTML(p)}</span>
   </div>
-  ${pc && pc.runsOutIn ? `<div class="pace-warn">At this pace: limit reached in ${durShort(pc.runsOutIn)}</div>` : ''}`;
+  ${pc && pc.runsOutIn ? `<div class="pace-warn">${esc(t('At this pace: limit reached in %s', durShort(pc.runsOutIn)))}</div>` : ''}`;
 }
 // Token dropdown: one block per time window, side by side.
 function tokenBlocks(tw) {
   return `<div class="tok-grid">${tw.map(w => `
     <div class="tok">
-      <div class="tok-title">${esc(w.label)}</div>
-      <div class="stat"><span class="k">Input</span><span class="v">${esc(w.input)}</span></div>
-      <div class="stat"><span class="k">Output</span><span class="v">${esc(w.output)}</span></div>
-      <div class="stat total"><span class="k">Total Tokens</span><span class="v">${esc(w.total)}</span></div>
+      <div class="tok-title">${esc(t(w.label))}</div>
+      <div class="stat"><span class="k">${esc(t('Input'))}</span><span class="v">${esc(w.input)}</span></div>
+      <div class="stat"><span class="k">${esc(t('Output'))}</span><span class="v">${esc(w.output)}</span></div>
+      <div class="stat total"><span class="k">${esc(t('Total Tokens'))}</span><span class="v">${esc(w.total)}</span></div>
     </div>`).join('')}</div>`;
 }
 function card(u) {
   const tokens = u.tokens || [];
   const hist = historyById[u.id];
-  const hasDetails = tokens.length > 0 || (u.details || []).length > 0 || !!hist;
+  const daily = dailyChart(u);
+  const hasDetails = tokens.length > 0 || (u.details || []).length > 0 || !!hist || !!daily;
   const open = !!openDetails[u.id];
   const groups = (u.groups || []).map(g => `
-    ${g.name ? `<div class="group-name" title="${esc(g.tooltip)}">${esc(g.name)}</div>` : ''}
+    ${g.name ? `<div class="group-name" title="${esc(g.tooltip)}">${esc(t(g.name))}</div>` : ''}
     ${(g.bars || []).map(barRow).join('')}
   `).join('');
   const details = hasDetails ? `<div class="details ${open ? 'open' : ''}">
       ${tokens.length ? tokenBlocks(tokens) : ''}
-      ${(u.details || []).map(s => `<div class="stat"><span class="k">${esc(s.label)}</span><span class="v">${esc(s.value)}</span></div>`).join('')}
+      ${(u.details || []).map(s => `<div class="stat"><span class="k">${esc(t(s.label))}</span><span class="v">${esc(s.value)}</span></div>`).join('')}
+      ${daily}
       ${hist ? histChart(u.id, hist) : ''}
     </div>` : '';
   return `<section class="card">
     <div class="card-head">
       ${logoHTML(u)}
       <span class="name">${esc(u.name)}</span>
-      ${u.plan ? `<span class="pill">${esc(u.plan)}</span>` : ''}
-      ${hasDetails ? `<button class="btn toggle ${open ? 'open' : ''}" data-id="${esc(u.id)}" title="Details">
+      ${u.plan ? `<span class="pill">${esc(t(u.plan))}</span>` : ''}
+      ${hasDetails ? `<button class="btn toggle ${open ? 'open' : ''}" data-id="${esc(u.id)}" title="${esc(t('Details'))}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></button>` : ''}
     </div>
-    ${u.error ? `<div class="err">${esc(u.error)}</div>` : ''}
+    ${u.error ? `<div class="err">${esc(t(u.error))}</div>` : ''}
     ${groups}
-    ${u.note ? `<div class="note">${esc(u.note)}</div>` : ''}
+    ${u.note ? `<div class="note">${esc(t(u.note))}</div>` : ''}
     ${details}
   </section>`;
-}
-
-// A window whose reset time has passed has been refilled, even if the data
-// is from before that moment (cache, rate limit, closed app): show it as 0%.
-function liveView(items) {
-  const now = Date.now();
-  return items.map(u => ({
-    ...u,
-    groups: (u.groups || []).map(g => ({
-      ...g,
-      bars: (g.bars || []).map(b => {
-        const t = b.resetsAt ? Date.parse(b.resetsAt) : NaN;
-        return !isNaN(t) && t <= now ? { ...b, usedPct: 0, resetsAt: '' } : b;
-      }),
-    })),
-  }));
 }
 
 function render(raw) {
   lastData = raw;
   const items = liveView(raw);
-  $('list').innerHTML = items.map(card).join('') || '<div class="empty">No providers</div>';
+  $('list').innerHTML = items.map(card).join('') || `<div class="empty">${esc(t('No providers'))}</div>`;
   if (!$('settings').hidden) renderSettings();
 }
 
 /* ---------- settings ---------- */
-function currentTaskbarIds() { return taskbarItems(lastData).map(u => u.id); }
+function currentTaskbarIds() { return taskbarItems(lastData, settings.taskbar).map(u => u.id); }
 function renderSettings() {
   const chosen = currentTaskbarIds();
   $('taskbarChoices').innerHTML = lastData.map(u => {
@@ -193,7 +131,7 @@ function renderSettings() {
       <input type="checkbox" data-id="${esc(u.id)}" ${on ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
       ${logoHTML(u)}<span>${esc(u.name)}</span>
     </label>`;
-  }).join('') || '<div class="s-hint">No providers found.</div>';
+  }).join('') || `<div class="s-hint">${esc(t('No providers found.'))}</div>`;
   for (const b of $('displaySeg').querySelectorAll('button')) b.classList.toggle('on', b.dataset.v === settings.display);
   const s = $('widthSlider');
   if (settings.minWidth) { s.min = settings.minWidth; s.max = settings.maxWidth; }
@@ -204,6 +142,8 @@ function renderSettings() {
   $('follow').checked = !!settings.follow;
   $('multi').checked = !!settings.multi;
   $('updateCheck').checked = settings.update !== false;
+  fillHotkey();
+  fillLanguage();
   fillLevels();
 }
 // Notification thresholds: warn 50–95, critical above warn up to 100.
@@ -225,15 +165,50 @@ async function saveLevels() {
 }
 $('warnAt').addEventListener('change', saveLevels);
 $('critAt').addEventListener('change', saveLevels);
+
+// Panel shortcut: a few safe combinations (Win+Alt+K is Windows' mic mute).
+const HOTKEYS = ['Win+Shift+K', 'Ctrl+Alt+K', 'Ctrl+Shift+K', 'Win+Ctrl+K', 'off'];
+function fillHotkey() {
+  const cur = settings.hotkey || HOTKEYS[0];
+  $('hotkey').innerHTML = HOTKEYS.map(h =>
+    `<option value="${h}"${h === cur ? ' selected' : ''}>${esc(h === 'off' ? t('Off') : h)}</option>`).join('');
+}
+$('hotkey').addEventListener('change', async (e) => {
+  settings.hotkey = e.target.value;
+  const err = await api().SetHotkey(settings.hotkey);
+  $('hotkeyErr').textContent = err ? t(err) : '';
+});
+
+// Language: "" follows Windows.
+const LANGUAGES = [['', 'Automatic (Windows)'], ['en', 'English'], ['tr', 'Türkçe']];
+function fillLanguage() {
+  const cur = settings.language || '';
+  $('language').innerHTML = LANGUAGES.map(([v, label]) =>
+    `<option value="${v}"${v === cur ? ' selected' : ''}>${esc(v ? label : t(label))}</option>`).join('');
+}
+$('language').addEventListener('change', async (e) => {
+  settings.language = e.target.value;
+  const dict = await api().SetLanguage(settings.language);
+  try { settings = await api().GetSettings(); } catch {}
+  setLanguage(settings.lang, dict);
+  applyStatic();
+  render(lastData);
+  renderSettings();
+  renderCredentials();
+  tickAgo();
+});
+
 $('updateCheck').addEventListener('change', (e) => {
   settings.update = e.target.checked;
   api().SetUpdateCheck(settings.update);
 });
 // A newer release: one line under the header, opens its GitHub page.
+let pendingUpdate = null;
 function showUpdate(u) {
+  pendingUpdate = u;
   const b = $('update');
   b.hidden = !u;
-  if (u) b.textContent = `Kota ${u.version} is available — view release`;
+  if (u) b.textContent = t('Kota %s is available — view release', u.version);
 }
 $('update').onclick = () => api().OpenUpdate();
 $('multi').addEventListener('change', (e) => {
@@ -304,22 +279,22 @@ function renderCredentials() {
     return `<div class="cred" data-id="${esc(c.id)}">
       <div class="cred-head">
         ${logoHTML({ id: c.id, name: c.name })}<span class="cred-name">${esc(c.name)}</span>
-        <span class="cred-state ${c.set ? 'on' : ''}">${c.set ? 'Key saved' : 'No key'}</span>
+        <span class="cred-state ${c.set ? 'on' : ''}">${esc(t(c.set ? 'Key saved' : 'No key'))}</span>
       </div>
       ${editing ? `
         <div class="cred-row">
-          <input type="password" class="cred-input" placeholder="Paste API key" autocomplete="off" spellcheck="false">
-          <button class="link-btn cred-save">Save</button>
-          ${c.set ? '<button class="link-btn cred-cancel">Cancel</button>' : ''}
+          <input type="password" class="cred-input" placeholder="${esc(t('Paste API key'))}" autocomplete="off" spellcheck="false">
+          <button class="link-btn cred-save">${esc(t('Save'))}</button>
+          ${c.set ? `<button class="link-btn cred-cancel">${esc(t('Cancel'))}</button>` : ''}
         </div>
-        <div class="s-hint cred-hint">${esc(c.hint)} <a href="#" class="cred-get">Get a key</a></div>`
+        <div class="s-hint cred-hint">${esc(t(c.hint))} <a href="#" class="cred-get">${esc(t('Get a key'))}</a></div>`
       : `<div class="cred-row">
-          <button class="link-btn cred-replace">Replace</button>
-          <button class="link-btn cred-remove">Remove</button>
+          <button class="link-btn cred-replace">${esc(t('Replace'))}</button>
+          <button class="link-btn cred-remove">${esc(t('Remove'))}</button>
         </div>`}
       <div class="err cred-err"></div>
     </div>`;
-  }).join('') || '<div class="s-hint">No providers need a key.</div>';
+  }).join('') || `<div class="s-hint">${esc(t('No providers need a key.'))}</div>`;
 }
 $('credList').addEventListener('click', async (e) => {
   const row = e.target.closest('.cred');
@@ -333,7 +308,7 @@ $('credList').addEventListener('click', async (e) => {
     const input = row.querySelector('.cred-input');
     const err = await api().SetCredential(id, input.value);
     input.value = '';
-    if (err) { row.querySelector('.cred-err').textContent = err; return; }
+    if (err) { row.querySelector('.cred-err').textContent = t(err); return; }
     editingCred = null;
     loadCredentials();
   }
@@ -345,16 +320,15 @@ $('credList').addEventListener('keydown', (e) => {
 $('settingsBtn').onclick = () => showSettings($('settings').hidden);
 
 $('list').addEventListener('click', (e) => {
-  const t = e.target.closest('.toggle');
-  if (!t) return;
-  openDetails[t.dataset.id] = !openDetails[t.dataset.id];
+  const tg = e.target.closest('.toggle');
+  if (!tg) return;
+  openDetails[tg.dataset.id] = !openDetails[tg.dataset.id];
   store.set('openDetails', openDetails);
   render(lastData);
 });
 
-
 /* ---------- open / close ---------- */
-// Go shows the panel (pill click) and hides it; the page only asks to hide.
+// Go shows the panel (pill click, shortcut) and hides it; the page only asks to hide.
 function hidePanel() { showSettings(false); api().HidePanel(); }
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape') hidePanel(); });
 // Losing focus closes the panel (ignore the moment right after it appears).
@@ -370,7 +344,7 @@ function gotData(data) {
 function tickAgo() {
   if (!lastUpdate) return;
   const s = Math.round((Date.now() - lastUpdate) / 1000);
-  $('ago').textContent = s < 60 ? 'just now' : Math.floor(s / 60) + 'm ago';
+  $('ago').textContent = s < 60 ? t('just now') : t('%dm ago', Math.floor(s / 60));
   if (lastData.length) render(lastData); // keep reset countdowns fresh
 }
 async function refresh() {
@@ -393,12 +367,13 @@ $('close').onclick = () => api().Quit();
 
 async function boot() {
   if (!api() || !(window.runtime && window.runtime.EventsOn)) return setTimeout(boot, 50);
+  try { settings = await api().GetSettings(); } catch {}
+  await loadLanguage();
   window.runtime.EventsOn('usage', gotData);
   window.runtime.EventsOn('update', showUpdate);
   api().GetUpdate().then(showUpdate).catch(() => {});
   window.runtime.EventsOn('panel:shown', () => { shownAt = Date.now(); tickAgo(); });
   window.runtime.EventsOn('panel:settings', () => { shownAt = Date.now(); showSettings(true); });
-  try { settings = await api().GetSettings(); } catch {}
   try { gotData(await api().GetUsage()); } catch {}
 }
 boot();

@@ -4,11 +4,7 @@ package domain
 // (once per window), and say when a limit that was nearly used up is
 // available again. Uses the data already fetched — no extra requests.
 
-import (
-	"fmt"
-	"strings"
-	"time"
-)
+import "time"
 
 const (
 	DefaultWarn     = 80
@@ -30,9 +26,23 @@ func NormLevels(warn, critical int) (int, int) {
 	return warn, critical
 }
 
-// Alert is one notification to show.
+// AlertKind is what an alert says.
+type AlertKind int
+
+const (
+	AlertWarn      AlertKind = iota // crossed the warning threshold
+	AlertCritical                   // crossed the critical threshold
+	AlertAvailable                  // a nearly used-up limit is available again
+)
+
+// Alert is one notification to show; the application layer words it in the
+// user's language.
 type Alert struct {
-	Title, Body string
+	Kind            AlertKind
+	Provider, Group string // e.g. "Antigravity", "Gemini Models" (may be empty)
+	Label           string // the limit, e.g. "5-hour limit"
+	Used            float64
+	ResetIn         time.Duration // AlertWarn / AlertCritical
 }
 
 // AlertState is what the policy remembers between checks.
@@ -78,11 +88,13 @@ func (p NotificationPolicy) Check(st *AlertState, items []Usage, now time.Time) 
 		for _, g := range u.Groups {
 			for _, b := range g.Bars {
 				id := u.ID + "|" + g.Name + "|" + b.Label
-				name := u.Name + " · " + strings.Join(nonEmpty(g.Name, b.Label), " · ")
+				base := Alert{Provider: u.Name, Group: g.Name, Label: b.Label}
 				used := b.LiveUsed(now)
 
 				if prev, ok := st.Prev[id]; ok && prev >= p.Warn && used <= refilledMax {
-					alerts = append(alerts, Alert{name + " is available again", fmt.Sprintf("Now %.0f%% used.", used)})
+					a := base
+					a.Kind, a.Used = AlertAvailable, used
+					alerts = append(alerts, a)
 				}
 				st.Prev[id] = used
 
@@ -91,16 +103,19 @@ func (p NotificationPolicy) Check(st *AlertState, items []Usage, now time.Time) 
 				if wk == "" || !ok || !reset.After(now) {
 					continue // unknown window: can't tell "once per window"
 				}
-				in := "Resets in " + ShortDuration(reset.Sub(now)) + "."
+				a := base
+				a.Used, a.ResetIn = used, reset.Sub(now)
 				warnKey, critKey := id+"|"+wk+"|80", id+"|"+wk+"|95"
 				switch {
 				case used >= p.Critical && st.Sent[critKey].IsZero():
 					st.Sent[critKey], st.Sent[warnKey] = now, now
-					alerts = append(alerts, Alert{fmt.Sprintf("%s at %.0f%% — almost out", name, used), in})
+					a.Kind = AlertCritical
+					alerts = append(alerts, a)
 					sentChanged = true
 				case used >= p.Warn && used < p.Critical && st.Sent[warnKey].IsZero():
 					st.Sent[warnKey] = now
-					alerts = append(alerts, Alert{fmt.Sprintf("%s at %.0f%%", name, used), in})
+					a.Kind = AlertWarn
+					alerts = append(alerts, a)
 					sentChanged = true
 				}
 			}

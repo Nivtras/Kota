@@ -9,7 +9,6 @@ package providers
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -18,6 +17,7 @@ import (
 	"time"
 
 	"kota/internal/domain"
+	"kota/internal/i18n"
 	"kota/internal/infrastructure/storage"
 )
 
@@ -134,7 +134,7 @@ func copilotResult(u copilotUser, now time.Time) remoteResult {
 		}
 		b := domain.Bar{Label: k.label, UsedPct: clamp(100 - q.PercentRemaining)}
 		if q.Entitlement > 0 {
-			b.Tooltip = fmt.Sprintf("%.0f of %.0f used this month", q.Entitlement-q.Remaining, q.Entitlement)
+			b.Tooltip = i18n.T("%.0f of %.0f used this month", q.Entitlement-q.Remaining, q.Entitlement)
 		}
 		if !reset.IsZero() {
 			b.ResetsAt, b.WindowSec = reset.Format(time.RFC3339), int64(reset.Sub(start)/time.Second)

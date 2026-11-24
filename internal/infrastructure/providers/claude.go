@@ -7,9 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"kota/internal/buildinfo"
-	"kota/internal/domain"
-	"kota/internal/infrastructure/storage"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +14,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"kota/internal/buildinfo"
+	"kota/internal/domain"
+	"kota/internal/i18n"
+	"kota/internal/infrastructure/storage"
 )
 
 // Claude reads plan limits via the Claude Code CLI OAuth token
@@ -63,8 +65,8 @@ func credsPath() string { return filepath.Join(claudeDir(), ".credentials.json")
 func (c *Claude) Fetch(ctx context.Context) domain.Usage {
 	u := newUsage(c)
 
-	if tw, err := claudeLocalStats(); err == nil {
-		u.Tokens = tw
+	if tally, err := claudeLocalStats(); err == nil {
+		setTokens(&u, tally)
 	}
 
 	cache := loadClaudeCache()
@@ -87,10 +89,10 @@ func (c *Claude) Fetch(ctx context.Context) domain.Usage {
 	if wait {
 		u.Plan = cache.Plan
 		if len(cache.Bars) == 0 {
-			u.Error = fmt.Sprintf("%s — retrying in %s.", cache.LastErr, shortDur(time.Until(cache.NextAllowed)))
+			u.Error = i18n.T("%s — retrying in %s.", i18n.T(cache.LastErr), i18n.ShortDuration(time.Until(cache.NextAllowed)))
 		} else if cache.LastErr != "" {
-			showCache(fmt.Sprintf("%s — showing data from %s, retrying in %s.",
-				cache.LastErr, cache.FetchedAt.Local().Format("15:04"), shortDur(time.Until(cache.NextAllowed))))
+			showCache(i18n.T("%s — showing data from %s, retrying in %s.",
+				i18n.T(cache.LastErr), cache.FetchedAt.Local().Format("15:04"), i18n.ShortDuration(time.Until(cache.NextAllowed))))
 		} else {
 			u.Groups = []domain.Group{{Bars: cache.Bars}}
 		}
@@ -121,10 +123,10 @@ func (c *Claude) Fetch(ctx context.Context) domain.Usage {
 		cache.NextAllowed = time.Now().Add(cache.Backoff)
 		saveClaudeCache(cache)
 		if len(cache.Bars) > 0 {
-			showCache(fmt.Sprintf("%s — showing data from %s, retrying in %s.",
-				cache.LastErr, cache.FetchedAt.Local().Format("15:04"), shortDur(cache.Backoff)))
+			showCache(i18n.T("%s — showing data from %s, retrying in %s.",
+				i18n.T(cache.LastErr), cache.FetchedAt.Local().Format("15:04"), i18n.ShortDuration(cache.Backoff)))
 		} else {
-			u.Error = fmt.Sprintf("%s — retrying in %s.", cache.LastErr, shortDur(cache.Backoff))
+			u.Error = i18n.T("%s — retrying in %s.", i18n.T(cache.LastErr), i18n.ShortDuration(cache.Backoff))
 		}
 		return u
 	}
@@ -429,13 +431,12 @@ func parseClaudeLog(path string) []claudeRecord {
 	return out
 }
 
-func claudeLocalStats() ([]domain.TokenWindow, error) {
+func claudeLocalStats() (*tokenTally, error) {
 	root := filepath.Join(claudeDir(), "projects")
 	now := time.Now()
 	since7 := now.Add(-7 * 24 * time.Hour)
-	since5h := now.Add(-5 * time.Hour)
 	seen := map[string]bool{}
-	var w5, w7 struct{ in, out int64 }
+	tally := newTally(now)
 
 	claudeScanMu.Lock()
 	defer claudeScanMu.Unlock()
@@ -459,12 +460,7 @@ func claudeLocalStats() ([]domain.TokenWindow, error) {
 				continue
 			}
 			seen[rec.key] = true
-			w7.in += rec.in
-			w7.out += rec.out
-			if rec.ts.After(since5h) {
-				w5.in += rec.in
-				w5.out += rec.out
-			}
+			tally.add(rec.ts, rec.in, rec.out)
 		}
 		return nil
 	})
@@ -476,10 +472,7 @@ func claudeLocalStats() ([]domain.TokenWindow, error) {
 			delete(claudeScanCache, p)
 		}
 	}
-	return []domain.TokenWindow{
-		tokenWindow("Last 5h", w5.in, w5.out),
-		tokenWindow("Last 7d", w7.in, w7.out),
-	}, nil
+	return tally, nil
 }
 
 func clamp(p float64) float64 {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"kota/internal/domain"
+	"kota/internal/i18n"
 )
 
 // remoteResult is what one successful fetch produced.
@@ -22,6 +23,9 @@ type remoteResult struct {
 	Plan    string         `json:"plan"`
 	Details []domain.Stat  `json:"details"`
 	Note    string         `json:"note"`
+	// Per-day history, if the provider has one.
+	Daily     []domain.DayAmount `json:"daily,omitempty"`
+	DailyUnit string             `json:"dailyUnit,omitempty"`
 }
 
 type remoteCache struct {
@@ -50,6 +54,7 @@ func fetchRemote(ctx context.Context, u domain.Usage, s remoteSpec) domain.Usage
 	cache := loadJSON[remoteCache](s.cacheFile)
 	apply := func(r remoteResult) {
 		u.Groups, u.Plan, u.Details, u.Note = r.Groups, r.Plan, r.Details, r.Note
+		u.Daily, u.DailyUnit = r.Daily, r.DailyUnit
 		if u.Groups == nil {
 			u.Groups = []domain.Group{}
 		}
@@ -57,7 +62,7 @@ func fetchRemote(ctx context.Context, u domain.Usage, s remoteSpec) domain.Usage
 	stale := func(msg string) domain.Usage {
 		if len(cache.Groups) > 0 || len(cache.Details) > 0 {
 			apply(cache.remoteResult)
-			u.Note = fmt.Sprintf("%s — showing data from %s.", msg, cache.FetchedAt.Local().Format("Jan 2 15:04"))
+			u.Note = i18n.T("%s — showing data from %s.", i18n.T(msg), i18n.DateTime(cache.FetchedAt))
 		} else {
 			u.Error = msg
 		}
@@ -71,7 +76,7 @@ func fetchRemote(ctx context.Context, u domain.Usage, s remoteSpec) domain.Usage
 	if time.Now().Before(cache.NextAllowed) && !cache.FetchedAt.IsZero() && !anyResetPassed(bars) {
 		apply(cache.remoteResult)
 		if cache.LastErr != "" {
-			u.Note = fmt.Sprintf("%s — retrying in %s.", cache.LastErr, shortDur(time.Until(cache.NextAllowed)))
+			u.Note = i18n.T("%s — retrying in %s.", i18n.T(cache.LastErr), i18n.ShortDuration(time.Until(cache.NextAllowed)))
 		}
 		return u
 	}
@@ -87,13 +92,13 @@ func fetchRemote(ctx context.Context, u domain.Usage, s remoteSpec) domain.Usage
 		switch {
 		case errors.As(err, &he) && he.code == http.StatusTooManyRequests:
 			cache.Backoff = nextBackoff(cache.Backoff, he.retryAfter)
-			cache.LastErr = "Rate limited by " + s.service
+			cache.LastErr = i18n.T("Rate limited by %s", s.service)
 		case errors.As(err, &he) && (he.code == http.StatusUnauthorized || he.code == http.StatusForbidden):
 			cache.Backoff = claudeMinBackoff
 			cache.LastErr = s.authHint
 		default:
 			cache.Backoff = transientRetry
-			cache.LastErr = s.service + " usage API unreachable"
+			cache.LastErr = i18n.T("%s usage API unreachable", s.service)
 		}
 		cache.NextAllowed = time.Now().Add(cache.Backoff)
 		saveJSON(s.cacheFile, cache)

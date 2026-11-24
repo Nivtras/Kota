@@ -35,9 +35,22 @@ func TestCodexLocalTokens(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tw, err := codexLocalTokens()
+	tally, err := codexLocalTokens()
 	if err != nil {
 		t.Fatal(err)
+	}
+	tw := tally.windows()
+	// per day: 2 days ago and today (local), 7 days, oldest first
+	d := tally.daily()
+	if len(d) != 7 || d[6].Day != time.Now().Format("2006-01-02") || d[6].Tokens != 2200 {
+		t.Errorf("daily = %+v", d)
+	}
+	var sum int64
+	for _, x := range d {
+		sum += x.Tokens
+	}
+	if sum != 3300 {
+		t.Errorf("daily sum = %d, want 3300", sum)
 	}
 	want := []domain.TokenWindow{
 		{Label: "Last 5h", Input: "2.0K", Output: "200", Total: "2.2K"},

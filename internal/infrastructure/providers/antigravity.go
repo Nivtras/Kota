@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"kota/internal/domain"
 	"net/http"
 	"os"
 	"os/exec"
@@ -15,6 +14,9 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"kota/internal/domain"
+	"kota/internal/i18n"
 )
 
 var httpClient = &http.Client{Timeout: 15 * time.Second}
@@ -89,7 +91,7 @@ var agCached *agEndpoint
 // closed, read-only, no quota spent) → last saved data.
 func (a *Antigravity) Fetch(ctx context.Context) domain.Usage {
 	u := newUsage(a)
-	u.Tokens = antigravityLocalTokens()
+	setTokens(&u, antigravityLocalTokens())
 	cache := loadJSON[agCache]("antigravity-cache.json")
 
 	qs, plan, lsErr := fromLanguageServer(ctx)
@@ -111,8 +113,7 @@ func (a *Antigravity) Fetch(ctx context.Context) domain.Usage {
 			u.Note = "App closed · via agy CLI"
 		} else if cache.Summary != nil {
 			qs = cache.Summary
-			u.Note = fmt.Sprintf("Antigravity closed and agy CLI unavailable — showing data from %s.",
-				cache.FetchedAt.Local().Format("Jan 2 15:04"))
+			u.Note = i18n.T("Antigravity closed and agy CLI unavailable — showing data from %s.", i18n.DateTime(cache.FetchedAt))
 		} else {
 			u.Error = lsErr.Error()
 			if errors.Is(cliErr, errNoCLI) {
