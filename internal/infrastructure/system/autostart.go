@@ -2,19 +2,21 @@
 
 package system
 
-// "Start with Windows": a value under the per-user Run key, plus its entry in
-// Explorer's StartupApproved list. Nothing is written unless the user turns
-// the setting on.
+// "Start with Windows": a Kota.lnk shortcut in the user's Startup folder,
+// plus its record in Explorer's StartupApproved\StartupFolder list (what
+// Settings → Apps → Startup and Task Manager show and toggle). Nothing is
+// written unless the user turns the setting on.
 //
-// StartupApproved is what Settings → Apps → Startup (and Task Manager) show
-// and toggle. Current Windows 11 builds start a Run entry at sign-in only
-// when it has an "enabled" record there; an entry without one is neither
-// listed nor started. So Kota writes both, and treats a record the user
-// switched off in Windows as "off".
+// Earlier versions used a value under the per-user Run key. On current
+// Windows 11 builds Explorer skipped that entry at sign-in even with an
+// "enabled" StartupApproved record, while Startup folder shortcuts start
+// reliably; RepairAutostart moves an old Run entry over, keeping a
+// "switched off in Windows" choice.
 
 import (
 	"encoding/binary"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,12 +27,20 @@ import (
 )
 
 const (
-	runKeyPath      = `Software\Microsoft\Windows\CurrentVersion\Run`
-	approvedKeyPath = `Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run`
-	runValueName    = "Kota"
+	startupLinkName   = "Kota.lnk"
+	approvedRoot      = `Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\`
+	approvedFolder    = approvedRoot + `StartupFolder`
+	legacyRunKeyPath  = `Software\Microsoft\Windows\CurrentVersion\Run`
+	legacyApprovedRun = approvedRoot + `Run`
+	legacyRunValue    = "Kota"
 )
 
-// approval is the StartupApproved record: missing, enabled or disabled.
+// startupLink is %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Kota.lnk.
+func startupLink() string {
+	return filepath.Join(os.Getenv("APPDATA"), `Microsoft\Windows\Start Menu\Programs\Startup`, startupLinkName)
+}
+
+// approval is a StartupApproved record: missing, enabled or disabled.
 type approval int
 
 const (
@@ -39,13 +49,13 @@ const (
 	approvalDisabled
 )
 
-func readApproval() approval {
-	k, err := registry.OpenKey(registry.CURRENT_USER, approvedKeyPath, registry.QUERY_VALUE)
+func readApprovalAt(key, name string) approval {
+	k, err := registry.OpenKey(registry.CURRENT_USER, key, registry.QUERY_VALUE)
 	if err != nil {
 		return approvalMissing
 	}
 	defer k.Close()
-	b, _, err := k.GetBinaryValue(runValueName)
+	b, _, err := k.GetBinaryValue(name)
 	if err != nil || len(b) == 0 {
 		return approvalMissing
 	}
@@ -55,10 +65,12 @@ func readApproval() approval {
 	return approvalEnabled
 }
 
+func readApproval() approval { return readApprovalAt(approvedFolder, startupLinkName) }
+
 // writeApproval records Kota as enabled (02 …) or disabled (03 + the time
 // it was switched off), the same format Settings writes.
 func writeApproval(enabled bool) error {
-	k, _, err := registry.CreateKey(registry.CURRENT_USER, approvedKeyPath, registry.SET_VALUE)
+	k, _, err := registry.CreateKey(registry.CURRENT_USER, approvedFolder, registry.SET_VALUE)
 	if err != nil {
 		return err
 	}
@@ -71,69 +83,53 @@ func writeApproval(enabled bool) error {
 		binary.LittleEndian.PutUint32(b[4:], ft.LowDateTime)
 		binary.LittleEndian.PutUint32(b[8:], ft.HighDateTime)
 	}
-	return k.SetBinaryValue(runValueName, b)
+	return k.SetBinaryValue(startupLinkName, b)
 }
 
-func deleteApproval() {
-	if k, err := registry.OpenKey(registry.CURRENT_USER, approvedKeyPath, registry.SET_VALUE); err == nil {
-		_ = k.DeleteValue(runValueName)
+func deleteValue(key, name string) {
+	if k, err := registry.OpenKey(registry.CURRENT_USER, key, registry.SET_VALUE); err == nil {
+		_ = k.DeleteValue(name)
 		k.Close()
 	}
 }
 
-func runValue() (string, bool) {
-	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.QUERY_VALUE)
-	if err != nil {
-		return "", false
-	}
-	defer k.Close()
-	v, _, err := k.GetStringValue(runValueName)
-	return v, err == nil
+func linkExists() bool {
+	_, err := os.Stat(startupLink())
+	return err == nil
 }
 
-// AutostartEnabled: there is a Run entry and it isn't switched off in
+// AutostartEnabled: the Startup shortcut exists and isn't switched off in
 // Windows' Startup apps.
 func AutostartEnabled() bool {
-	_, ok := runValue()
-	return ok && readApproval() != approvalDisabled
+	return linkExists() && readApproval() != approvalDisabled
 }
 
 // SetAutostart turns "Start with Windows" on (this exe) or off.
 func SetAutostart(on bool) error {
+	removeLegacyRun()
 	if !on {
-		k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
-		if err != nil {
+		if err := os.Remove(startupLink()); err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		defer k.Close()
-		if err := k.DeleteValue(runValueName); err != nil && err != registry.ErrNotExist {
-			return err
-		}
-		deleteApproval()
+		deleteValue(approvedFolder, startupLinkName)
 		return nil
 	}
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	cmd := `"` + exe + `"`
-	if !samePath(exe, installedExe()) {
-		cmd += " --portable" // a copy run from elsewhere: don't ask to install at login
-	}
-	return setRunCommand(cmd, true)
+	return writeLink(exe, true)
 }
 
-// setRunCommand writes the Run entry and, when enable is set (the user asked
-// for autostart) or there is no record yet, marks it enabled. A record the
-// user switched off in Windows is kept as is otherwise.
-func setRunCommand(cmd string, enable bool) error {
-	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE)
-	if err != nil {
-		return err
+// writeLink points the Startup shortcut at exe. When enable is set (the user
+// asked for autostart) or there is no record yet, it is marked enabled; a
+// record the user switched off in Windows is kept as is otherwise.
+func writeLink(exe string, enable bool) error {
+	args := ""
+	if !samePath(exe, installedExe()) {
+		args = "--portable" // a copy run from elsewhere: don't ask to install at login
 	}
-	err = k.SetStringValue(runValueName, cmd)
-	k.Close()
-	if err != nil {
+	if err := createShortcut(startupLink(), exe, args); err != nil {
 		return err
 	}
 	if enable || readApproval() == approvalMissing {
@@ -142,45 +138,72 @@ func setRunCommand(cmd string, enable bool) error {
 	return nil
 }
 
-// RepairAutostart keeps an existing "Start with Windows" entry working:
-//   - it points at an exe that no longer exists (the folder was moved or
-//     renamed) → point it at this exe;
-//   - it has no StartupApproved record (written by older Kota versions, so
-//     Windows never started it) → add an "enabled" one.
+func legacyRunValueOf() (string, bool) {
+	k, err := registry.OpenKey(registry.CURRENT_USER, legacyRunKeyPath, registry.QUERY_VALUE)
+	if err != nil {
+		return "", false
+	}
+	defer k.Close()
+	v, _, err := k.GetStringValue(legacyRunValue)
+	return v, err == nil
+}
+
+func removeLegacyRun() {
+	deleteValue(legacyRunKeyPath, legacyRunValue)
+	deleteValue(legacyApprovedRun, legacyRunValue)
+}
+
+// exeOf is the program in a command line: "C:\x\Kota.exe" --portable → C:\x\Kota.exe.
+func exeOf(cmd string) string {
+	cmd = strings.TrimSpace(cmd)
+	if strings.HasPrefix(cmd, `"`) {
+		exe, _, _ := strings.Cut(cmd[1:], `"`)
+		return exe
+	}
+	exe, _, _ := strings.Cut(cmd, " ")
+	return exe
+}
+
+// RepairAutostart keeps "Start with Windows" working:
+//   - an old Run entry becomes the Startup shortcut (switched off stays off);
+//   - a shortcut pointing at an exe that no longer exists (the folder was
+//     moved or renamed) is pointed at this exe.
 //
-// A switched-off record and an entry for another copy that exists are kept.
+// A shortcut for another copy that exists is kept.
 func RepairAutostart() {
-	val, ok := runValue()
-	if !ok {
-		return // autostart is off
-	}
-	target := strings.TrimSpace(val)
-	if strings.HasPrefix(target, `"`) {
-		target, _, _ = strings.Cut(target[1:], `"`)
-	} else {
-		target, _, _ = strings.Cut(target, " ")
-	}
-	if _, err := os.Stat(target); err != nil {
-		exe, err := os.Executable()
-		if err != nil {
-			return
-		}
-		cmd := `"` + exe + `"`
-		if !samePath(exe, installedExe()) {
-			cmd += " --portable"
-		}
-		if setRunCommand(cmd, false) == nil {
-			storage.Log("autostart: %s was missing; now points at this exe", target)
-		}
+	self, err := os.Executable()
+	if err != nil {
 		return
 	}
-	if readApproval() == approvalMissing && writeApproval(true) == nil {
-		storage.Log("autostart: added the Startup apps record Windows needs to start Kota")
+	if cmd, ok := legacyRunValueOf(); ok {
+		off := readApprovalAt(legacyApprovedRun, legacyRunValue) == approvalDisabled
+		target := exeOf(cmd)
+		if _, err := os.Stat(target); err != nil {
+			target = self
+		}
+		if err := writeLink(target, false); err != nil {
+			storage.Log("autostart: moving the Run entry to the Startup folder failed: %v", err)
+			return
+		}
+		if off {
+			_ = writeApproval(false)
+		}
+		removeLegacyRun()
+		storage.Log("autostart: moved to the Startup folder (%s)", target)
+		return
+	}
+	if !linkExists() {
+		return // autostart is off
+	}
+	if target := shortcutTarget(startupLink()); target != "" {
+		if _, err := os.Stat(target); err != nil && writeLink(self, false) == nil {
+			storage.Log("autostart: %s was missing; now points at this exe", target)
+		}
 	}
 }
 
 // setAutostartPath points "Start with Windows" at exe (after install).
-func setAutostartPath(exe string) error { return setRunCommand(`"`+exe+`"`, false) }
+func setAutostartPath(exe string) error { return writeLink(exe, false) }
 
 // Autostart is "Start with Windows" as an object (application.Autostart).
 type Autostart struct{}

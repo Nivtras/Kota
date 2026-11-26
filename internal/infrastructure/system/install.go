@@ -21,7 +21,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -73,10 +72,29 @@ func shortcutPath() string {
 	return filepath.Join(os.Getenv("APPDATA"), `Microsoft\Windows\Start Menu\Programs`, appDisplayName+".lnk")
 }
 
+// samePath compares two paths, also when one uses 8.3 short names (MERTCA~1).
 func samePath(a, b string) bool {
-	ca, _ := filepath.Abs(a)
-	cb, _ := filepath.Abs(b)
-	return strings.EqualFold(filepath.Clean(ca), filepath.Clean(cb))
+	return strings.EqualFold(longPath(a), longPath(b))
+}
+
+func longPath(p string) string {
+	p, _ = filepath.Abs(p)
+	p = filepath.Clean(p)
+	src, err := windows.UTF16PtrFromString(p)
+	if err != nil {
+		return p
+	}
+	buf := make([]uint16, windows.MAX_PATH)
+	for {
+		n, err := windows.GetLongPathName(src, &buf[0], uint32(len(buf)))
+		if err != nil || n == 0 {
+			return p // doesn't exist (yet): compare as written
+		}
+		if int(n) <= len(buf) {
+			return windows.UTF16ToString(buf[:n])
+		}
+		buf = make([]uint16, n)
+	}
 }
 
 // handleInstall runs before the app starts. It returns true when this
@@ -147,7 +165,7 @@ func install(self string) error {
 	if err := copyFile(self, installedExe()); err != nil {
 		return err
 	}
-	if err := createShortcut(shortcutPath(), installedExe()); err != nil {
+	if err := createShortcut(shortcutPath(), installedExe(), ""); err != nil {
 		storage.Log("install: shortcut: %v", err)
 	}
 	if err := writeUninstallEntry(dir); err != nil {
@@ -191,67 +209,6 @@ func copyFile(src, dst string) error {
 		os.Remove(tmp)
 	}
 	return err
-}
-
-var (
-	clsidShellLink  = windows.GUID{Data1: 0x00021401, Data4: [8]byte{0xc0, 0, 0, 0, 0, 0, 0, 0x46}}
-	iidIShellLinkW  = windows.GUID{Data1: 0x000214f9, Data4: [8]byte{0xc0, 0, 0, 0, 0, 0, 0, 0x46}}
-	iidIPersistFile = windows.GUID{Data1: 0x0000010b, Data4: [8]byte{0xc0, 0, 0, 0, 0, 0, 0, 0x46}}
-)
-
-// IShellLinkW / IPersistFile vtable slots.
-const (
-	vtQueryInterface  = 0
-	vtSetDescription  = 7
-	vtSetWorkingDir   = 9
-	vtSetIconLocation = 17
-	vtSetPath         = 20
-	vtPersistFileSave = 6
-	coinitApartment   = 0x2
-	rpcEChangedMode   = 0x80010106
-)
-
-// createShortcut writes a .lnk with the shell's own IShellLink object.
-func createShortcut(lnk, target string) error {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	if hr, _, _ := win32.CoInitializeEx.Call(0, coinitApartment); int32(hr) >= 0 {
-		defer win32.CoUninitialize.Call()
-	} else if uint32(hr) != rpcEChangedMode {
-		return fmt.Errorf("CoInitializeEx: 0x%x", uint32(hr))
-	}
-	var link unsafe.Pointer
-	if hr, _, _ := win32.CoCreateInstance.Call(uintptr(unsafe.Pointer(&clsidShellLink)), 0, win32.ClsctxInprocServer,
-		uintptr(unsafe.Pointer(&iidIShellLinkW)), uintptr(unsafe.Pointer(&link))); int32(hr) < 0 || link == nil {
-		return fmt.Errorf("ShellLink: 0x%x", uint32(hr))
-	}
-	defer win32.ComRelease(link)
-	str := func(v string) uintptr { return uintptr(unsafe.Pointer(win32.UTF16Ptr(v))) }
-	for _, c := range []struct {
-		slot int
-		args []uintptr
-	}{
-		{vtSetPath, []uintptr{str(target)}},
-		{vtSetWorkingDir, []uintptr{str(filepath.Dir(target))}},
-		{vtSetDescription, []uintptr{str("AI usage limits on the taskbar")}},
-		{vtSetIconLocation, []uintptr{str(target), 0}},
-	} {
-		if hr := win32.ComCall(link, c.slot, c.args...); int32(hr) < 0 {
-			return fmt.Errorf("IShellLink slot %d: 0x%x", c.slot, uint32(hr))
-		}
-	}
-	var pf unsafe.Pointer
-	if hr := win32.ComCall(link, vtQueryInterface, uintptr(unsafe.Pointer(&iidIPersistFile)), uintptr(unsafe.Pointer(&pf))); int32(hr) < 0 || pf == nil {
-		return fmt.Errorf("IPersistFile: 0x%x", uint32(hr))
-	}
-	defer win32.ComRelease(pf)
-	if hr := win32.ComCall(pf, vtPersistFileSave, str(lnk), 1); int32(hr) < 0 {
-		return fmt.Errorf("save shortcut: 0x%x", uint32(hr))
-	}
-	if _, err := os.Stat(lnk); err != nil {
-		return fmt.Errorf("shortcut not written: %v", err)
-	}
-	return nil
 }
 
 func writeUninstallEntry(dir string) error {
@@ -357,7 +314,7 @@ func waitForExit(pid uint32, limit time.Duration) {
 // app's old name (AI Usage Widget) and moves its autostart entry.
 func MigrateOldName() {
 	storage.MigrateOldFolder()
-	k, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.QUERY_VALUE|registry.SET_VALUE)
+	k, err := registry.OpenKey(registry.CURRENT_USER, legacyRunKeyPath, registry.QUERY_VALUE|registry.SET_VALUE)
 	if err != nil {
 		return
 	}
